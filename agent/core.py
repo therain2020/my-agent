@@ -257,6 +257,34 @@ TODO: {task}
             return {"is_clear": True, "has_acceptance_criteria": False,
                     "objects_involved": [], "acceptance_criteria": [], "issues": []}
 
+    @staticmethod
+    def _prompt_user_for_todo_clarification(
+        issues: list[dict], has_criteria: bool
+    ) -> str | None:
+        """Ask the user to clarify unclear/missing TODO details.
+
+        Returns user input string, or None to skip.
+        """
+        lines = []
+        if issues:
+            lines.append("TODO 分析发现问题:")
+            for i, issue in enumerate(issues):
+                sev = issue.get("severity", "warning")
+                desc = issue.get("description", "")
+                fix = issue.get("suggested_fix", "")
+                lines.append(f"  [{sev}] {desc}")
+                if fix:
+                    lines.append(f"        建议: {fix}")
+        if not has_criteria:
+            lines.append("  [blocker] 缺少验收标准——如何判断任务已完成？")
+        lines.append("\n请补充说明 (或输入 skip 跳过):")
+
+        try:
+            return input("\n".join(lines) + "\n> ").strip()
+        except (EOFError, OSError):
+            logger.warning("todo_clarification_input_failed")
+            return None
+
     async def _verify_against_criteria(self, criteria: list[str],
                                          conversation: str) -> dict:
         """Verify each acceptance criterion against execution results."""
@@ -319,12 +347,17 @@ TODO: {task}
         analysis = await self._analyze_todo(task_description)
         acceptance_criteria = analysis.get("acceptance_criteria", [])
         issues = analysis.get("issues", [])
-        if issues:
-            logger.warning("todo_issues_found", task_id=task_id, issues=len(issues))
-            for issue in issues:
-                logger.info("todo_issue", type=issue.get("type"),
-                            severity=issue.get("severity"),
-                            description=issue.get("description", "")[:200])
+        if issues or not analysis.get("has_acceptance_criteria", False):
+            logger.warning("todo_issues_found", task_id=task_id,
+                           issues=len(issues), missing_criteria=not analysis.get("has_acceptance_criteria"))
+            # Ask user for clarification
+            clarification = self._prompt_user_for_todo_clarification(
+                issues, analysis.get("has_acceptance_criteria", False)
+            )
+            if clarification:
+                task_description = f"{task_description}\n\n用户补充说明:\n{clarification}"
+                analysis = await self._analyze_todo(task_description)
+                acceptance_criteria = analysis.get("acceptance_criteria", [])
 
         conversation = ""
         result_summary = ""
