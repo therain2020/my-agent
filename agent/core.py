@@ -14,6 +14,7 @@ from .dont_do import DontDoEngine, HookPoint, Verdict
 from .errors import InterruptSignal
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
+from .objects import AgentObject, ObjectState, extract_state_properties
 from .prompt import (
     PromptAssembler,
     PromptInputs,
@@ -22,6 +23,7 @@ from .prompt import (
 )
 from .providers import LLMProvider, ProviderConfig
 from .retry import retry
+from .role import DEFAULT_ROLE
 from .security import SecurityManager
 from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry
@@ -55,6 +57,7 @@ class Agent:
         self.prompt_assembler = PromptAssembler()
         self.tool_result_mgr = ToolResultManager()
         self.dont_do = DontDoEngine()
+        self.role = DEFAULT_ROLE
 
         # LLM Provider (lazy)
         self._provider: LLMProvider | None = None
@@ -336,9 +339,14 @@ class Agent:
             await self.interrupt.check()
 
             if iteration == 0:
-                # Phase 1: Observe — understand current state
-                observation = await self._observe(goal, conversation)
-                conversation += f"\n[Observe] {observation[:500]}"
+                # Phase 1 V2: Structured Observe
+                objects = await self._observe_structured(goal)
+                observation_lines = []
+                for uri, obj in objects.items():
+                    state = obj.state_before.properties if obj.state_before else {}
+                    observation_lines.append(f"[{obj.type}] {obj.display_name}: {state}")
+                observation = "\n".join(observation_lines) if observation_lines else "(no objects observed)"
+                conversation += f"\n[Observe] {len(objects)} objects: {observation[:500]}"
 
                 # Phase 2: Analyze + Plan
                 plan = await self._plan_goal(goal, observation, conversation)
@@ -420,12 +428,18 @@ class Agent:
                 except Exception as e:
                     conversation += f"\n[Error] {step.get('action', str(step))[:100]}: {e}"
 
-            # Phase 4: Verify
-            verified = await self._verify_goal(goal, conversation)
-            if verified:
+            # Phase 4 V2: Structured Verify
+            verification = await self._verify_goal(goal, conversation)
+            if verification.get("achieved") and verification.get("confidence", 0) >= 0.6:
                 last_error = ""
                 break
-            last_error = "Goal not verified after execution"
+            last_error = (
+                f"Goal not verified: {verification.get('explanation', 'unknown')[:200]}"
+            )
+            conversation += (
+                f"\n[Verify failed] confidence={verification.get('confidence', 0):.1f}, "
+                f"unmet={verification.get('unmet', [])}"
+            )
 
         # Record episode
         success = not last_error
@@ -480,40 +494,114 @@ class Agent:
             filtered.append(step)
         return filtered
 
-    async def _observe(self, goal: str, conversation: str) -> str:
-        """Phase 1: Observe current state relevant to the goal."""
-        tools = self.registry.list_all()
-        prompt = self.prompt_assembler.assemble(PromptInputs(
-            role=(
-                "你需要了解当前状态以完成目标。"
-                "用 function_call 格式调用工具来观察现状。"
-                "完成观察后输出 <final>done</final>。"
-            ),
-            tool_summaries=format_tool_summary(tools),
-            task=f"目标: {goal}\n\n先观察当前状态，再制定计划。",
-        ))
-        provider = self._get_provider()
-        resp = await retry(provider.complete, prompt, max_tokens=4096)
-        tool_calls = self._parse_tool_calls(resp.content)
-        observations = []
-        for tc in tool_calls:
-            tool_def = self.registry.get(tc["tool"])
-            if tool_def:
+    async def _identify_objects_in_goal(self, goal: str) -> list[str]:
+        """Let LLM identify which object types are involved in the goal."""
+        if not self._provider:
+            return self.role.known_object_types
+        known = ", ".join(self.role.known_object_types)
+        prompt = (
+            f"目标: {goal}\n\n"
+            f"可用对象类型: {known}\n\n"
+            f"只回复 JSON 数组，列出目标涉及的对象类型。示例: [\"file\", \"database\"]"
+        )
+        try:
+            resp = await self._get_provider().complete(prompt, max_tokens=80)
+            import json
+            text = resp.content.strip()
+            if "[" in text and "]" in text:
+                text = text[text.find("["):text.rfind("]") + 1]
+            types = json.loads(text)
+            return [t for t in types if t in self.role.known_object_types]
+        except Exception:
+            return self.role.known_object_types
+
+    async def _observe_structured(self, goal: str) -> dict[str, AgentObject]:
+        """Phase 1 V2: Structured observation with object model.
+
+        1. Identify object types involved in the goal
+        2. For each type, use role-defined observation tools only
+        3. Build AgentObject instances with state snapshots
+        """
+        obj_types = await self._identify_objects_in_goal(goal)
+        objects: dict[str, AgentObject] = {}
+
+        for obj_type in obj_types:
+            # Get tools capable of observing this object type
+            obs_caps = self.role.get_observation_tools(obj_type)
+            tools = self.registry.find_by_object(obj_type)
+            obs_tools = [
+                t for t in tools
+                if any(c.name in obs_caps for c in t.capabilities)
+            ]
+            if not obs_tools:
+                obs_tools = tools[:3]  # fallback: first 3 tools for this type
+
+            prompt = self.prompt_assembler.assemble(PromptInputs(
+                role=(
+                    f"观察所有 {obj_type} 类型对象的状态。"
+                    "使用提供的工具。完成后输出 <final>done</final>。"
+                ),
+                tool_summaries=format_tool_summary(obs_tools),
+                task=f"目标: {goal}\n\n观察 {obj_type} 对象的当前状态。",
+            ))
+            provider = self._get_provider()
+            try:
+                resp = await retry(provider.complete, prompt, max_tokens=4096)
+            except Exception:
+                continue
+            tool_calls = self._parse_tool_calls(resp.content)
+
+            for tc in tool_calls:
+                tool_def = self.registry.get(tc["tool"])
+                if not tool_def:
+                    continue
                 result = await self.executor.execute(
                     tool_def, tc["capability"], tc.get("params", {})
                 )
-                observations.append(f"[{tc['tool']}.{tc['capability']}]: {str(result)[:500]}")
-        return "\n".join(observations) if observations else resp.content[:1000]
+                params = tc.get("params", {})
+                path = params.get("path", params.get("uri", ""))
+                uri = f"{obj_type}://{path}" if path else f"{obj_type}://{tc['tool']}"
+                properties = extract_state_properties(result)
+                objects[uri] = AgentObject(
+                    uri=uri,
+                    type=obj_type,
+                    display_name=path or tc["tool"],
+                    state_before=ObjectState(
+                        observed_at=datetime.now(UTC).isoformat(),
+                        properties=properties,
+                    ),
+                    observation_tools=obs_caps,
+                    manipulation_tools=self.role.get_manipulation_tools(obj_type),
+                )
+
+        self._observed_objects = objects
+        return objects
 
     async def _plan_goal(self, goal: str, observation: str, conversation: str) -> list[dict]:
-        """Phase 2+3: Analyze gap and generate plan."""
+        """Phase 2+3: Analyze gap and generate plan.
+
+        V2: Uses object-filtered tools in the planning prompt for better relevance.
+        """
+        obj_types = []
+        for obj in self._observed_objects.values():
+            if obj.type not in obj_types:
+                obj_types.append(obj.type)
+
+        # Filter tools to only those relevant to identified objects
+        relevant_tools = []
+        for obj_type in obj_types:
+            relevant_tools.extend(self.registry.find_by_object(obj_type))
+        if not relevant_tools:
+            relevant_tools = self.registry.list_all()[:10]
+
         prompt = self.prompt_assembler.assemble(PromptInputs(
             role=(
-                "基于观察结果，为目标制定执行计划。"
-                "输出 JSON 格式的计划数组，每步包含 action 和 verify。"
+                "基于观察结果，使用可用工具为目标制定执行计划。"
+                "输出 JSON 格式的计划数组，每步包含 action, tool, object 和 verify。"
                 "如果不可自动验证，设置 verify: 'manual'。"
                 "不要在 JSON 之外输出任何内容。"
             ),
+            tool_summaries=format_tool_summary(relevant_tools),
             task=(
                 f"目标: {goal}\n\n"
                 f"观察结果:\n{observation}"
@@ -533,18 +621,55 @@ class Agent:
                 text = text[text.find("["):text.rfind("]") + 1]
             return json.loads(text)
         except json.JSONDecodeError:
-            # If LLM didn't output JSON, treat response as a single step
             return [{"action": resp.content[:500], "verify": "manual"}]
 
-    async def _verify_goal(self, goal: str, conversation: str) -> bool:
-        """Phase 5: Verify if the goal is achieved."""
+    async def _verify_goal(self, goal: str, conversation: str) -> dict:
+        """Phase 5 V2: Structured verification with active state observation.
+
+        Re-observes objects to compare final vs initial state,
+        then judges goal achievement with evidence.
+        """
+        # Re-observe objects to get final state
+        objects_after = await self._observe_structured(goal)
+
+        # Update state_after on previously observed objects
+        for uri, obj in self._observed_objects.items():
+            if uri in objects_after:
+                obj.state_after = objects_after[uri].state_before
+
+        # Build state diff
+        state_diff = {}
+        for uri, obj in self._observed_objects.items():
+            if obj.state_changed:
+                state_diff[uri] = obj.diff
+
+        import json
+        diff_text = json.dumps(state_diff, ensure_ascii=False, indent=2) if state_diff else "(无变化)"
+
         prompt = self.prompt_assembler.assemble(PromptInputs(
-            role="根据执行结果判断目标是否已达成。只回复 YES 或 NO。",
-            task=f"目标: {goal}\n\n执行结果:\n{conversation[-3000:]}",
+            role=(
+                "你是验证器。基于对象状态变化和执行记录判断目标是否已达成。"
+                "输出 JSON: "
+                '{"achieved": true/false, "confidence": 0.0-1.0, '
+                '"explanation": "简短说明", "unmet": ["未满足的条件"]}'
+            ),
+            task=(
+                f"目标: {goal}\n\n"
+                f"对象状态变化:\n{diff_text}\n\n"
+                f"执行记录:\n{conversation[-2000:]}"
+            ),
         ))
         provider = self._get_provider()
-        resp = await retry(provider.complete, prompt, max_tokens=16)
-        return "YES" in resp.content.upper()
+        resp = await retry(provider.complete, prompt, max_tokens=300)
+        try:
+            text = resp.content.strip()
+            if "{" in text and "}" in text:
+                text = text[text.find("{"):text.rfind("}") + 1]
+            return json.loads(text)
+        except json.JSONDecodeError:
+            achieved = "YES" in resp.content.upper()
+            return {"achieved": achieved, "confidence": 0.3,
+                    "explanation": resp.content[:200], "unmet": []}
 
     def _parse_tool_calls(self, response: str) -> list[dict]:
         """Parse <function_call> tags from LLM response.
