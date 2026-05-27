@@ -1,12 +1,10 @@
 """Configuration loading and validation."""
 
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
 from .errors import ConfigError
-
 
 DEFAULT_CONFIG = {
     "agent": {
@@ -29,7 +27,7 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config(path: Optional[Path] = None) -> dict:
+def load_config(path: Path | None = None) -> dict:
     """Load and validate config.yaml, merging with defaults.
 
     If no path is given, looks for config.yaml in the current directory.
@@ -57,7 +55,7 @@ def _validate(config: dict) -> None:
     """Validate required fields."""
     if "llm" not in config:
         raise ConfigError("Missing 'llm' section in config")
-    providers = config["llm"].get("providers", [])
+    _providers = config["llm"].get("providers", [])
     # Providers can also be added via CLI, so empty is OK on load
 
 

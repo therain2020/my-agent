@@ -1,7 +1,7 @@
 """Custom provider for any openai-compatible endpoint."""
 
-from .openai import OpenAIProvider
 from . import ProviderConfig
+from .openai import OpenAIProvider
 
 
 class CustomProvider(OpenAIProvider):

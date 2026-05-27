@@ -5,7 +5,7 @@ from pathlib import Path
 
 import structlog
 
-from agent.tools.loader import ToolDefinition, Capability
+from agent.tools.loader import Capability, ToolDefinition
 
 logger = structlog.get_logger()
 

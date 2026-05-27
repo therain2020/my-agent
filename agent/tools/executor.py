@@ -89,7 +89,6 @@ class ToolExecutor:
             raise ToolError(f"Entry point file not found: {script_path}")
 
         # Dynamic import
-        import importlib.util
         spec = importlib.util.spec_from_file_location(
             f"tool_{tool_def.name}_{cap.name}", str(script_path)
         )
@@ -110,7 +109,7 @@ class ToolExecutor:
                     timeout=timeout_ms / 1000,
                 )
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             from agent.errors import ToolTimeoutError
             raise ToolTimeoutError(tool_def.name, timeout_ms / 1000)
         except Exception as e:
@@ -154,7 +153,7 @@ class ToolExecutor:
                 proc.communicate(input=json.dumps(params).encode()),
                 timeout=timeout_ms / 1000,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             from agent.errors import ToolTimeoutError
             raise ToolTimeoutError(tool_def.name, timeout_ms / 1000)

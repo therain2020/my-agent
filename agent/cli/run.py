@@ -4,8 +4,8 @@ import asyncio
 
 import click
 
-from agent.core import Agent
 from agent.cli.providers import get_provider
+from agent.core import Agent
 
 
 @click.command()

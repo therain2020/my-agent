@@ -1,7 +1,8 @@
 """LLM Provider abstraction (HAL). 类比: Kernel Hardware Abstraction Layer."""
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import AsyncIterator, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @dataclass

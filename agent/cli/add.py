@@ -9,9 +9,8 @@ from pathlib import Path
 
 import click
 
-from agent.tools.registry import ToolRegistry
 from agent.tools.loader import generate_tool_md
-
+from agent.tools.registry import ToolRegistry
 
 _registry: ToolRegistry | None = None
 
@@ -80,7 +79,7 @@ def discover():
             if f.description:
                 click.echo(f"       {f.description[:80]}")
 
-    click.echo(f"\nTo migrate: my-agent add from-<agent-name>")
+    click.echo("\nTo migrate: my-agent add from-<agent-name>")
 
 
 @add.command()
@@ -120,10 +119,9 @@ def from_claude_code(yes: bool):
 
     Imports all skills, MCP servers, settings, and CLAUDE.md.
     """
-    from agent.tools.adapters.scanner import InstalledAgentScanner
     from agent.tools.adapters.claude_skill import convert_claude_skill
-    from agent.tools.adapters.claude_settings import convert_claude_settings
     from agent.tools.adapters.plain_text import convert_plain_text
+    from agent.tools.adapters.scanner import InstalledAgentScanner
 
     scanner = InstalledAgentScanner()
     result = scanner.scan_agent("claude-code")
@@ -188,7 +186,6 @@ def from_claude_code(yes: bool):
 def from_codex(yes: bool):
     """One-click migration from Codex CLI."""
     from agent.tools.adapters.scanner import InstalledAgentScanner
-    from agent.tools.adapters.codex import convert_codex_config
 
     scanner = InstalledAgentScanner()
     result = scanner.scan_agent("codex")
@@ -230,7 +227,6 @@ def from_gemini(yes: bool):
 def from_cursor(yes: bool):
     """One-click migration from Cursor."""
     from agent.tools.adapters.scanner import InstalledAgentScanner
-    from agent.tools.adapters.plain_text import convert_cursor_rules
 
     scanner = InstalledAgentScanner()
     result = scanner.scan_agent("cursor")
@@ -435,7 +431,7 @@ def info(name: str):
     if tool.source_command:
         click.echo(f"Command:     {tool.source_command}")
     click.echo(f"Objects:     {', '.join(tool.objects)}")
-    click.echo(f"Capabilities:")
+    click.echo("Capabilities:")
     for cap in tool.capabilities:
         click.echo(f"  - {cap.name}: {cap.description}")
         if cap.danger_level != "low":
@@ -463,7 +459,7 @@ def remove(name: str, dry_run: bool):
         click.echo(f"Would remove: {name}")
         if generated_dir.exists():
             click.echo(f"  Would delete: {generated_dir}")
-        click.echo(f"  Would unregister from registry")
+        click.echo("  Would unregister from registry")
         click.echo("Use without --dry-run to execute.")
         return
 
@@ -474,7 +470,7 @@ def remove(name: str, dry_run: bool):
 
     # Stop MCP process if running
     if tool.runtime == "mcp":
-        click.echo(f"  If MCP server was running, it will stop on next restart.")
+        click.echo("  If MCP server was running, it will stop on next restart.")
 
     registry.unregister(name)
     click.echo(f"Removed '{name}'.")

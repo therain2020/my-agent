@@ -1,6 +1,5 @@
 """Integration tests for end-to-end flows (no real LLM required)."""
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -79,7 +78,6 @@ class TestProviderPersistence:
                 }
             }), encoding="utf-8")
 
-            from agent.cli.providers import get_provider
             # Provider may fail to build (no real API key), but the config
             # should be loaded. get_provider handles build failures gracefully.
             # Just verify persistence mechanism works.

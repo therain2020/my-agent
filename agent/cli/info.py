@@ -2,8 +2,8 @@
 
 import click
 
-from agent.tools.registry import ToolRegistry
 from agent.security import SecurityManager
+from agent.tools.registry import ToolRegistry
 
 
 @click.group(name="info")
@@ -65,8 +65,9 @@ def dont_do_list():
 @info.command(name="config")
 def config_show():
     """Show current configuration."""
-    from agent.config import load_config
     import yaml
+
+    from agent.config import load_config
 
     config = load_config()
     # Mask API keys in output

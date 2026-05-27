@@ -1,7 +1,7 @@
 """Tests for tool registry."""
 
+from agent.tools.loader import Capability, ToolDefinition
 from agent.tools.registry import ToolRegistry
-from agent.tools.loader import ToolDefinition, Capability
 
 
 def make_tool(name: str, objects: list[str], caps: list[str], source: str = "builtin") -> ToolDefinition:

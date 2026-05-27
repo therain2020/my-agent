@@ -5,11 +5,9 @@ Phase 1 records: timestamp, task type, task summary, tools used, result.
 Phase 2 will add: semantic memory + consolidation + LRU cache.
 """
 
-import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -46,7 +44,7 @@ class EpisodicMemory:
 
         Appends to the current month's log file.
         """
-        entry.timestamp = datetime.now(timezone.utc).isoformat()
+        entry.timestamp = datetime.now(UTC).isoformat()
 
         month_dir = self._base / datetime.now().strftime("%Y-%m")
         month_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +104,7 @@ class EpisodicMemory:
             "avg_steps": round(sum(e.steps for e in entries) / total, 1),
         }
 
-    def _parse_block(self, block: str) -> Optional[EpisodeEntry]:
+    def _parse_block(self, block: str) -> EpisodeEntry | None:
         """Parse a single episode block from markdown."""
         lines = block.split("\n")
         if not lines:

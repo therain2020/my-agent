@@ -1,7 +1,7 @@
 """Anthropic provider adapter."""
 
 import os
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import structlog
 
@@ -90,6 +90,8 @@ class AnthropicProvider:
             raise self._classify_error(e) from e
 
     def _classify_error(self, error: Exception) -> Exception:
+        import httpx
+
         from agent.errors import (
             ProviderAuthError,
             ProviderBadRequestError,
@@ -97,7 +99,6 @@ class AnthropicProvider:
             ProviderServerError,
             ProviderTimeoutError,
         )
-        import httpx
         status = getattr(error, "status_code", 0)
         if status == 401:
             return ProviderAuthError(str(error))

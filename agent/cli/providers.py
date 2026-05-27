@@ -2,10 +2,7 @@
 
 import asyncio
 import json
-import os
-from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
 
 import click
 
@@ -173,7 +170,7 @@ def remove(name: str):
     click.echo(f"Provider '{name}' removed")
 
 
-def get_provider(name: str = "") -> Optional[LLMProvider]:
+def get_provider(name: str = "") -> LLMProvider | None:
     """Get a provider instance by name (lazy build from persisted config)."""
     store = _load_store()
     if not store:

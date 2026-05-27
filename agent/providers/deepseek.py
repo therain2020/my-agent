@@ -1,7 +1,7 @@
 """DeepSeek provider adapter. DeepSeek API is OpenAI-compatible."""
 
-from .openai import OpenAIProvider
 from . import ProviderConfig
+from .openai import OpenAIProvider
 
 
 class DeepSeekProvider(OpenAIProvider):

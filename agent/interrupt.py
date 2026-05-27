@@ -3,9 +3,7 @@
 Phase 2 will add: interrupt vector table, priority queue, signal mask.
 """
 
-import asyncio
 import signal
-from typing import Optional
 
 import structlog
 

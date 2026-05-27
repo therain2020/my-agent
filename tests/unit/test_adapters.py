@@ -3,8 +3,6 @@
 import tempfile
 from pathlib import Path
 
-from agent.tools.loader import generate_tool_md
-
 
 class TestClaudeSkillAdapter:
     def test_convert_behavioral_skill(self):
@@ -98,7 +96,7 @@ class TestMCPAdapter:
 class TestValidator:
     def test_validate_import_ok(self):
         from agent.tools.adapters.validator import validate_import
-        from agent.tools.loader import ToolDefinition, Capability
+        from agent.tools.loader import Capability, ToolDefinition
 
         td = ToolDefinition(
             name="safe-tool", objects=["file"],
@@ -110,7 +108,7 @@ class TestValidator:
 
     def test_validate_name_conflict(self):
         from agent.tools.adapters.validator import validate_import
-        from agent.tools.loader import ToolDefinition, Capability
+        from agent.tools.loader import Capability, ToolDefinition
 
         td = ToolDefinition(name="conflict", objects=[],
                             capabilities=[Capability(name="x")])
@@ -119,7 +117,7 @@ class TestValidator:
 
     def test_validate_mcp_no_command(self):
         from agent.tools.adapters.validator import validate_import
-        from agent.tools.loader import ToolDefinition, Capability
+        from agent.tools.loader import Capability, ToolDefinition
 
         td = ToolDefinition(
             name="bad-mcp", objects=[],
@@ -132,7 +130,7 @@ class TestValidator:
 
     def test_validate_dangerous_capability(self):
         from agent.tools.adapters.validator import validate_import
-        from agent.tools.loader import ToolDefinition, Capability
+        from agent.tools.loader import Capability, ToolDefinition
 
         td = ToolDefinition(
             name="risky", objects=["database"],

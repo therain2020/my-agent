@@ -2,8 +2,8 @@
 
 import asyncio
 import random
-import time
-from typing import Callable, TypeVar
+from collections.abc import Callable
+from typing import TypeVar
 
 import structlog
 

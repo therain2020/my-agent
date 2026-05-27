@@ -1,7 +1,6 @@
 """Prompt assembler. 类比: ELF loader + linker script + DMA."""
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 import structlog
 
@@ -115,7 +114,7 @@ class ToolResultManager:
         self._side_channel: dict[str, str] = {}
         self._counter = 0
 
-    def process(self, result: str, token_estimate: Optional[int] = None) -> str:
+    def process(self, result: str, token_estimate: int | None = None) -> str:
         """Process a tool result. Large results → side channel."""
         if token_estimate is None:
             token_estimate = len(result) // 4

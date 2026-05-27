@@ -2,7 +2,6 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -33,7 +32,7 @@ class ToolDefinition:
     runtime: str = "import"  # import | subprocess | mcp
     source: str = "builtin"  # builtin | claude-code-skill | mcp-server | codex-plugin | gemini-ext
     source_command: str = ""  # MCP server command or original skill path
-    tool_dir: Optional[Path] = None
+    tool_dir: Path | None = None
     body: str = ""  # Markdown body for LLM context
     mcp_transport: str = "stdio"  # stdio | sse | streamable_http
     raw_frontmatter: dict = field(default_factory=dict)

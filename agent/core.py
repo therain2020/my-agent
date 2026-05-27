@@ -3,16 +3,14 @@
 import asyncio
 import time
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
 from .config import load_config
-from .errors import InterruptSignal, LoopExhaustedError
+from .errors import InterruptSignal
 from .interrupt import InterruptHandler
-from .memory import EpisodicMemory, EpisodeEntry
+from .memory import EpisodeEntry, EpisodicMemory
 from .prompt import (
     PromptAssembler,
     PromptInputs,
@@ -23,7 +21,6 @@ from .providers import LLMProvider, ProviderConfig
 from .retry import retry
 from .security import SecurityManager
 from .tools.executor import ToolExecutor
-from .tools.loader import ToolDefinition
 from .tools.registry import ToolRegistry
 from .tools.supervisor import ImportedToolSupervisor
 
@@ -37,7 +34,7 @@ class Agent:
     Phase 2 will add Goal-mode planning.
     """
 
-    def __init__(self, config_path: Optional[Path] = None):
+    def __init__(self, config_path: Path | None = None):
         self.config = load_config(config_path)
         self.session_id = str(uuid.uuid4())[:8]
 
@@ -52,8 +49,8 @@ class Agent:
         self.tool_result_mgr = ToolResultManager()
 
         # LLM Provider (lazy)
-        self._provider: Optional[LLMProvider] = None
-        self._provider_config: Optional[ProviderConfig] = None
+        self._provider: LLMProvider | None = None
+        self._provider_config: ProviderConfig | None = None
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""

@@ -8,7 +8,6 @@ MCP servers, settings, rules, and config files.
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -21,8 +20,8 @@ class Finding:
     type: str  # skill | plugin | mcp | settings_deny | settings_hooks | rule | plain_text
     name: str
     source: str  # Which agent it came from
-    path: Optional[Path] = None
-    command: Optional[str] = None  # For MCP servers
+    path: Path | None = None
+    command: str | None = None  # For MCP servers
     metadata: dict = field(default_factory=dict)
     description: str = ""
 

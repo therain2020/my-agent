@@ -1,7 +1,6 @@
 """Tool registry. 类比: udev + device driver registry."""
 
 from pathlib import Path
-from typing import Optional
 
 import structlog
 
@@ -65,7 +64,7 @@ class ToolRegistry:
         logger.info("tool_unregistered", name=name)
         return True
 
-    def get(self, name: str) -> Optional[ToolDefinition]:
+    def get(self, name: str) -> ToolDefinition | None:
         """Get a tool by name."""
         return self._tools.get(name)
 

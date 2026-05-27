@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-import yaml
 import structlog
+import yaml
 
-from agent.tools.loader import ToolDefinition, Capability, _split_frontmatter
+from agent.tools.loader import Capability, ToolDefinition, _split_frontmatter
 
 logger = structlog.get_logger()
 

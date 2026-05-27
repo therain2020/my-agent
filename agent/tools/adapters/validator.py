@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 import structlog
 
-from agent.tools.loader import ToolDefinition, Capability
+from agent.tools.loader import ToolDefinition
 
 logger = structlog.get_logger()
 
@@ -89,13 +89,13 @@ def validate_import(
     elif tool_def.source in ("claude-code-skill", "claude-code-skill-role"):
         checks.append(ValidationCheck(
             level="OK",
-            message=f"Imported from Claude Code skill"
+            message="Imported from Claude Code skill"
         ))
     elif tool_def.source == "mcp-server":
         checks.append(ValidationCheck(
             level="WARN",
-            message=f"Imported from MCP server. "
-                    f"Verify the server's trustworthiness before use."
+            message="Imported from MCP server. "
+                    "Verify the server's trustworthiness before use."
         ))
 
     has_errors = any(c.level == "ERROR" for c in checks)

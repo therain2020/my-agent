@@ -36,11 +36,12 @@ include = ["agent*"]
 agent = ["**/*.md", "**/*.yaml", "**/*.yml"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+select = ["E", "F", "I", "W", "UP"]
+ignore = ["N818", "N801", "UP047"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

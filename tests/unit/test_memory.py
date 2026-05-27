@@ -1,9 +1,8 @@
 """Tests for episodic memory."""
 
 import tempfile
-from pathlib import Path
 
-from agent.memory import EpisodicMemory, EpisodeEntry
+from agent.memory import EpisodeEntry, EpisodicMemory
 
 
 class TestEpisodicMemory:

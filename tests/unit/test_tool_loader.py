@@ -4,13 +4,12 @@ import tempfile
 from pathlib import Path
 
 from agent.tools.loader import (
-    ToolDefinition,
     Capability,
-    parse_tool_md,
-    generate_tool_md,
+    ToolDefinition,
     _split_frontmatter,
+    generate_tool_md,
+    parse_tool_md,
 )
-
 
 SAMPLE_TOOL_MD = """---
 name: test-tool
@@ -39,7 +38,6 @@ This is the body text describing the tool.
 
 class TestParseToolMd:
     def test_parse_valid_tool_md(self):
-        path = Path("/fake/tool.md")
         # We need to temporarily write the file
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".md", delete=False, encoding="utf-8"
