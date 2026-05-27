@@ -77,6 +77,15 @@ ruff check agent/ tests/
 python -m build
 ```
 
+## Network
+
+Windows 环境下联网走 clash 代理：`http://127.0.0.1:7890`
+
+```bash
+# curl / pip / gh 需要时加:
+--proxy http://127.0.0.1:7890
+```
+
 ## Release Flow
 
 ```
@@ -90,3 +99,29 @@ python -m build
 ```
 
 Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远一致。不需要手动打 tag。
+
+### Release Verification
+
+每次发布后验证三步：
+
+```bash
+# 1. 确认 GitHub Actions
+gh run list -w release.yml --limit 1
+
+# 2. 确认 PyPI 版本
+curl -s --proxy http://127.0.0.1:7890 \
+  "https://pypi.org/pypi/therain2020-agent/json" \
+  | python -c "import sys,json; d=json.load(sys.stdin); print(d['info']['version'])"
+
+# 3. 干净环境安装测试
+python -m venv /tmp/test-pypi
+/tmp/test-pypi/Scripts/pip install --proxy http://127.0.0.1:7890 \
+  therain2020-agent==<version>
+/tmp/test-pypi/Scripts/python -c "import agent; print(agent.__version__)"
+rm -rf /tmp/test-pypi
+```
+
+## 行为规则
+
+- 网络操作默认走 clash 代理 `127.0.0.1:7890`，不要再问
+- 发布后自动执行三步验证，不要再问
