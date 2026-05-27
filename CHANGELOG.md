@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.3.1 (2026-05-27)
+
+- Updated README.md and README.zh-CN.md with closed-loop agent architecture
+- Added CLAUDE.md with design document index and OS kernel analogy map
+
 ## v0.3.0 (2026-05-27)
 
 Phase 4: Closed-loop agent with object model, structured verification, and output format enforcement. 170 tests.
