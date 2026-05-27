@@ -8,6 +8,7 @@ from pathlib import Path
 import structlog
 
 from .config import load_config
+from .consolidation import ConsolidationDaemon
 from .errors import InterruptSignal
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
@@ -44,6 +45,10 @@ class Agent:
         self.executor = ToolExecutor(supervisor=self.supervisor)
         self.security = SecurityManager(self.config["security"]["dont_do_paths"])
         self.memory = EpisodicMemory(self.config["memory"]["path"])
+        self.consolidation = ConsolidationDaemon(
+            store=self.memory.store,
+            provider=self._provider
+        )
         self.interrupt = InterruptHandler()
         self.prompt_assembler = PromptAssembler()
         self.tool_result_mgr = ToolResultManager()
@@ -209,6 +214,17 @@ class Agent:
         duration = round(time.time() - start_time, 1)
         logger.info("task_complete", task_id=task_id, success=success,
                      steps=steps_taken, duration_seconds=duration)
+
+        # Trigger consolidation
+        self.consolidation.on_task_end(interrupted=not success)
+        self.consolidation.set_provider(self._get_provider())
+        should, reason = self.consolidation.should_consolidate()
+        if should:
+            logger.info("consolidation_triggered", reason=reason)
+            try:
+                await self.consolidation.consolidate()
+            except Exception as e:
+                logger.error("consolidation_error", error=str(e))
 
         return {
             "task_id": task_id,
