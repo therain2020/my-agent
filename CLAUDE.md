@@ -85,9 +85,8 @@ python -m build
 3. git checkout -b feat/release-vX.Y.Z
 4. git add ... && git commit && git push && gh pr create
 5. 等 CI 全绿 → merge PR
-6. git checkout master && git pull
-7. git tag vX.Y.Z && git push origin vX.Y.Z
-   → release.yml 触发 → GitHub Release + PyPI 发布
+6. CI 自动: 读 pyproject.toml 版本号 → git tag vX.Y.Z → build
+   → GitHub Release（含 release notes）→ PyPI 发布
 ```
 
-**铁律：先 merge PR，再打 tag。tag 必须指向 master 上的 merge commit。** 绝不 `git push origin master --tags`（会导致 tag 成功但 master 被拒的不一致状态）。
+Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远一致。不需要手动打 tag。
