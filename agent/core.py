@@ -14,7 +14,7 @@ from .dont_do import DontDoEngine, HookPoint, Verdict
 from .errors import InterruptSignal
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
-from .objects import AgentObject, ObjectState, extract_state_properties, resolve_object_type
+from .objects import AgentObject, ObjectState, extract_state_properties
 from .prompt import (
     PromptAssembler,
     PromptInputs,
@@ -23,7 +23,7 @@ from .prompt import (
 )
 from .providers import LLMProvider, ProviderConfig
 from .retry import retry
-from .role import DEFAULT_ROLE, Role
+from .role import DEFAULT_ROLE
 from .security import SecurityManager
 from .tools.executor import ToolExecutor
 from .tools.registry import ToolRegistry

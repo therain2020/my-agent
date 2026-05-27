@@ -5,7 +5,6 @@ State snapshots are captured before and after operations for verification.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 
 
 @dataclass
