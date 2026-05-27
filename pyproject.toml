@@ -28,6 +28,13 @@ my-agent = "agent.cli:main"
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agent*"]
+
+[tool.setuptools.package-data]
+agent = ["**/*.md", "**/*.yaml", "**/*.yml"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
