@@ -1,11 +1,9 @@
 """Tests for Phase 4: output format rules and validation."""
 
 from agent.output_format import (
-    CitationRule,
     DEFAULT_PROFILE,
     FILE_REFERENCE,
     FUNCTION_REFERENCE,
-    CONFIG_REFERENCE,
     OutputFormatManager,
     OutputFormatProfile,
 )
@@ -84,11 +82,7 @@ class TestOutputFormatManager:
         mgr = OutputFormatManager()
         response = "修改了 src/main.py:42"
         result = mgr.validate(response)
-        citation_warnings = [
-            i for i in result["issues"] if i["type"] == "citation_format"
-        ]
-        # File with line number might still trigger the loose pattern
-        # depending on context — this test checks no false error
+        # With proper file:line format, no errors expected
         assert result["error_count"] == 0
 
     def test_validate_missing_reports(self):

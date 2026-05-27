@@ -101,33 +101,32 @@ class OutputFormatManager:
         sep = self.profile.section_separator
         disclosure_text = ""
         if self.profile.disclosure_required:
-            disclosure_text = f"""
-## 渐进式披露要求
-
-用 `{sep}` 分隔回答的层次：
-1. 总结层: 1-2句话概括结论
-2. 关键细节层: 核心论据或关键步骤
-3. 完整说明层: 详细展开（仅在需要时）
-"""
+            disclosure_text = (
+                "\n## 渐进式披露要求\n\n"
+                f"用 `{sep}` 分隔回答的层次：\n"
+                "1. 总结层: 1-2句话概括结论\n"
+                "2. 关键细节层: 核心论据或关键步骤\n"
+                "3. 完整说明层: 详细展开（仅在需要时）\n"
+            )
 
         report_text = ""
         if self.profile.report_format == "action_report":
-            report_text = f"""
-## 行动报告格式
+            report_text = (
+                "\n## 行动报告格式\n\n"
+                "每个工具调用后，输出:\n"
+                "<action_report>\n"
+                "<action>执行的操作</action>\n"
+                "<result>操作结果（一句话）</result>\n"
+                "<evidence>验证方式</evidence>\n"
+                "</action_report>\n"
+            )
 
-每个工具调用后，输出:
-<action_report>
-<action>执行的操作</action>
-<result>操作结果（一句话）</result>
-<evidence>验证方式</evidence>
-</action_report>
-"""
-
-        return f"""## 输出格式规范（系统级约束）
-
-{chr(10).join(rules_text)}
-{disclosure_text}
-{report_text}"""
+        return (
+            "## 输出格式规范（系统级约束）\n\n"
+            + "\n".join(rules_text)
+            + disclosure_text
+            + report_text
+        )
 
     def validate(self, response: str) -> dict:
         """Validate LLM output against format rules."""
