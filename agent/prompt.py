@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 import structlog
 
+from .output_format import OutputFormatManager
+
 logger = structlog.get_logger()
 
 
@@ -13,6 +15,7 @@ class PromptInputs:
     role: str = ""
     behavior_rules: list[str] = field(default_factory=list)
     dont_do_rules: str = ""
+    output_format_rules: str = ""
     tool_summaries: str = ""
     memory_context: str = ""
     task: str = ""
@@ -25,13 +28,18 @@ class PromptAssembler:
     """Assemble structured prompts in ELF XML format."""
 
     # System tags that must NEVER appear after user input
-    SYSTEM_TAGS = {"<system>", "<constraints>", "<role>", "<function_call>"}
+    SYSTEM_TAGS = {"<system>", "<constraints>", "<role>", "<function_call>",
+                   "<format_rules>"}
+
+    def __init__(self, output_format: OutputFormatManager | None = None):
+        self.output_format = output_format or OutputFormatManager()
 
     def assemble(self, inputs: PromptInputs, reserve_tokens: int = 30000) -> str:
         """Build the full prompt.
 
         Layout:
           <system>
+          <format_rules>
           <constraints>
           <context>
           <tools>
@@ -42,6 +50,13 @@ class PromptAssembler:
 
         # TEXT — system prompt (always first)
         parts.append(f"<system>\n{inputs.role}\n</system>")
+
+        # FORMAT_RULES — mandatory output format (immutable system-level)
+        format_prompt = inputs.output_format_rules or self.output_format.get_format_prompt()
+        if format_prompt:
+            parts.append(
+                f"<format_rules immutable=\"true\">\n{format_prompt}\n</format_rules>"
+            )
 
         # Behavior rules
         if inputs.behavior_rules:
