@@ -23,6 +23,7 @@ from .errors import InterruptSignal
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
 from .objects import AgentObject, ObjectState, extract_state_properties, resolve_object_type
+from .output_format import OutputFormatManager
 from .prompt import (
     PromptAssembler,
     PromptInputs,
@@ -62,7 +63,8 @@ class Agent:
             provider=self._provider
         )
         self.interrupt = InterruptHandler()
-        self.prompt_assembler = PromptAssembler()
+        self.output_format = OutputFormatManager()
+        self.prompt_assembler = PromptAssembler(output_format=self.output_format)
         self.tool_result_mgr = ToolResultManager()
         self.dont_do = DontDoEngine()
         self.role = DEFAULT_ROLE
@@ -383,6 +385,13 @@ TODO: {task}
             logger.info("llm_response", task_id=task_id,
                          iteration=iteration + 1,
                          content=response.content[:300])
+
+            # Validate output format
+            fmt_result = self.output_format.validate(response.content)
+            if not fmt_result["valid"] or fmt_result["warning_count"] > 0:
+                logger.info("format_issues", task_id=task_id,
+                            warnings=fmt_result["warning_count"],
+                            errors=fmt_result["error_count"])
 
             conversation += f"\n[Step {iteration + 1}] {response.content[:500]}"
             result_summary = f"第 {iteration + 1} 轮: {response.content[:300]}"
