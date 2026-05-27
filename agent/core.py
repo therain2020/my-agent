@@ -10,6 +10,12 @@ import structlog
 
 from .config import load_config
 from .consolidation import ConsolidationDaemon
+from .correction import (
+    Correction,
+    correction_to_rule,
+    parse_correction_file,
+    persist_dont_do_rule,
+)
 from .dont_do import DontDoEngine, HookPoint, Verdict
 from .errors import InterruptSignal
 from .interrupt import InterruptHandler
@@ -66,6 +72,10 @@ class Agent:
         # Phase 1: runtime tracking
         self._non_set_changes: list[dict] = []
         self._observed_objects: dict = {}
+
+        # Phase 3: correction tracking
+        self._corrections: list[Correction] = []
+        self._pending_corrections: list[Correction] = []
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""
@@ -137,6 +147,141 @@ class Agent:
             )
         return verdict, msg
 
+    # ——— Correction handling (Phase 3) ———
+
+    async def _check_for_corrections(self) -> list[Correction]:
+        """Poll for user corrections from the corrections/ directory."""
+        corrections_dir = Path("corrections")
+        if not corrections_dir.exists():
+            return []
+        found = []
+        for f in sorted(corrections_dir.glob("*.yaml")):
+            correction = parse_correction_file(f)
+            if correction and not correction.applied:
+                found.append(correction)
+                self._pending_corrections.append(correction)
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+        return found
+
+    async def _apply_correction(self, correction: Correction) -> None:
+        """Apply a correction: generate dont-do rule + persist."""
+        rule = await correction_to_rule(correction, self._get_provider())
+        if rule:
+            self.dont_do.add_rule(rule)
+            persist_dont_do_rule(rule)
+            correction.generated_rule_id = rule.id
+            self._track_non_set_change(
+                "add", rule.id,
+                f"User correction: {correction.description[:100]}",
+                correction.to_context(),
+            )
+        correction.applied = True
+        self._corrections.append(correction)
+        logger.info("correction_applied", corr_id=correction.id,
+                     rule_id=correction.generated_rule_id)
+
+    async def _replan_with_corrections(self, goal: str, observation: str,
+                                         corrections: list[Correction],
+                                         conversation: str) -> list[dict]:
+        """Re-plan considering user corrections."""
+        corrections_text = "\n".join(
+            f"- [{c.severity.value}] {c.target_uri}: {c.description}\n  建议: {c.suggestion}"
+            for c in corrections
+        )
+        prompt = self.prompt_assembler.assemble(PromptInputs(
+            role=(
+                "基于观察结果和用户纠正，重新制定执行计划。"
+                "避开用户纠正中指出的问题，采纳用户建议。"
+                "输出 JSON 格式的计划数组。"
+            ),
+            task=(
+                f"目标: {goal}\n\n"
+                f"观察结果:\n{observation}\n\n"
+                f"用户纠正（必须遵守）:\n{corrections_text}\n\n"
+                f"之前的执行记录:\n{conversation[-2000:]}"
+            ),
+        ))
+        resp = await retry(self._get_provider().complete, prompt, max_tokens=2048)
+        try:
+            import json
+            text = resp.content.strip()
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1]
+            if text.endswith("```"):
+                text = text[:-3]
+            if "[" in text and "]" in text:
+                text = text[text.find("["):text.rfind("]") + 1]
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return [{"action": resp.content[:500], "verify": "manual"}]
+
+    # ——— TODO analysis (Phase 3) ———
+
+    async def _analyze_todo(self, task: str) -> dict:
+        """Analyze a TODO for completeness and clarity."""
+        prompt = f"""分析以下 TODO 任务。
+
+TODO: {task}
+
+判断:
+1. 描述是否清晰？要做什么是否明确？
+2. 是否包含验收标准（如何判断完成）？
+3. 任务涉及哪些对象（文件、数据库等）？
+4. 有没有模糊、不合理或缺失的地方？
+
+输出 JSON:
+{{
+  "is_clear": true/false,
+  "has_acceptance_criteria": true/false,
+  "objects_involved": [{{"uri": "file://...", "type": "file"}}],
+  "acceptance_criteria": ["完成标准1"],
+  "issues": [
+    {{"type": "unclear|missing|unreasonable", "severity": "blocker|warning",
+      "description": "...", "suggested_fix": "..."}}
+  ],
+  "suggested_approach": "..."
+}}"""
+        resp = await self._get_provider().complete(prompt, max_tokens=1000)
+        try:
+            import json
+            text = resp.content.strip()
+            if "{" in text and "}" in text:
+                text = text[text.find("{"):text.rfind("}") + 1]
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"is_clear": True, "has_acceptance_criteria": False,
+                    "objects_involved": [], "acceptance_criteria": [], "issues": []}
+
+    async def _verify_against_criteria(self, criteria: list[str],
+                                         conversation: str) -> dict:
+        """Verify each acceptance criterion against execution results."""
+        if not criteria:
+            return {"all_met": True, "criteria_results": [], "met_count": 0, "total_count": 0}
+        results = []
+        for criterion in criteria:
+            prompt = f"""基于执行记录，判断以下验收标准是否满足。
+
+验收标准: {criterion}
+执行记录 (最后3000字符): {conversation[-3000:]}
+
+只回复 YES 或 NO，然后简短说明原因。"""
+            resp = await self._get_provider().complete(prompt, max_tokens=100)
+            met = "YES" in resp.content.upper()
+            results.append({
+                "criterion": criterion,
+                "met": met,
+                "evidence": resp.content[:200],
+            })
+        return {
+            "all_met": all(r["met"] for r in results),
+            "criteria_results": results,
+            "met_count": sum(1 for r in results if r["met"]),
+            "total_count": len(results),
+        }
+
     def _get_provider(self) -> LLMProvider:
         """Get or raise if no provider configured."""
         if self._provider is None:
@@ -168,8 +313,25 @@ class Agent:
 
         logger.info("task_start", task_id=task_id, task=task_description[:200])
 
+        # Phase 3: Analyze TODO for clarity and acceptance criteria
+        analysis = await self._analyze_todo(task_description)
+        acceptance_criteria = analysis.get("acceptance_criteria", [])
+        issues = analysis.get("issues", [])
+        if issues:
+            logger.warning("todo_issues_found", task_id=task_id, issues=len(issues))
+            for issue in issues:
+                logger.info("todo_issue", type=issue.get("type"),
+                            severity=issue.get("severity"),
+                            description=issue.get("description", "")[:200])
+
         conversation = ""
         result_summary = ""
+        criteria_text = ""
+        if acceptance_criteria:
+            criteria_text = (
+                "\n\n验收标准（必须全部满足）:\n" +
+                "\n".join(f"- {c}" for c in acceptance_criteria)
+            )
 
         for iteration in range(max_iterations):
             await self.interrupt.check()
@@ -181,7 +343,8 @@ class Agent:
             ))
 
             role_text = (
-                "你是一个编程助手。按照用户的任务指令逐步执行。\n\n"
+                "你是一个编程助手。按照用户的任务指令逐步执行。\n"
+                "完成所有验收标准后再结束。\n\n"
                 "当你需要使用工具时，必须用以下格式输出：\n"
                 "<function_call>\n"
                 "<name>工具名称</name>\n"
@@ -196,7 +359,7 @@ class Agent:
                 role=role_text,
                 dont_do_rules=self.security.get_constraints_prompt(relevant_objects),
                 tool_summaries=format_tool_summary(tools),
-                task=task_description,
+                task=task_description + criteria_text,
                 conversation_summary=result_summary if iteration > 0 else "",
                 recent_messages=conversation,
             ))
@@ -276,8 +439,18 @@ class Agent:
                     last_error = str(e)
                     conversation += f"\n[Error] {tc['tool']}.{tc['capability']}: {e}"
 
+        # Verify acceptance criteria
+        verification = None
+        if acceptance_criteria:
+            verification = await self._verify_against_criteria(
+                acceptance_criteria, conversation
+            )
+
         # Record episode
-        success = not last_error
+        success = (
+            not last_error
+            and (verification["all_met"] if verification else True)
+        )
         objects_before, objects_after, object_changes = self._capture_object_states()
         self.memory.log_episode(EpisodeEntry(
             task_id=task_id,
@@ -316,6 +489,7 @@ class Agent:
             "duration_seconds": duration,
             "result": result_summary,
             "error": last_error,
+            "verification": verification,
         }
 
     # ——— Goal Mode (K8s reconciliation loop) ———
@@ -360,10 +534,18 @@ class Agent:
                     break
                 conversation += f"\n[Plan] {len(plan)} steps generated"
             else:
-                # Retry: replan with what we've learned
-                plan = await self._plan_goal(
-                    goal, f"Previous attempt failed. {conversation[-2000:]}", conversation
-                )
+                # Retry: check for user corrections, then replan
+                corrections = await self._check_for_corrections()
+                for corr in corrections:
+                    await self._apply_correction(corr)
+
+                observation = f"Previous attempt failed. {conversation[-2000:]}"
+                if corrections:
+                    plan = await self._replan_with_corrections(
+                        goal, observation, corrections, conversation
+                    )
+                else:
+                    plan = await self._plan_goal(goal, observation, conversation)
                 if not plan:
                     break
                 plan = self._filter_plan_by_dont_do(plan)
