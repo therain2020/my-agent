@@ -83,10 +83,10 @@ python -m build
 1. python scripts/bump_version.py patch|minor|major
 2. Update CHANGELOG.md
 3. git checkout -b feat/release-vX.Y.Z
-4. git add ... && git commit
-5. git push && gh pr create → wait CI → merge
-6. CI auto-creates tag vX.Y.Z and publishes to PyPI
-   (release.yml triggers on push to master when pyproject.toml changes)
+4. git add ... && git commit && git push && gh pr create
+5. 等 CI 全绿 → merge PR
+6. CI 自动: 读 pyproject.toml 版本号 → git tag vX.Y.Z → build
+   → GitHub Release（含 release notes）→ PyPI 发布
 ```
 
-**Never** push a tag manually. The release workflow creates the tag from the merged master commit — this guarantees the tag and the published package always match the code on master.
+Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远一致。不需要手动打 tag。
