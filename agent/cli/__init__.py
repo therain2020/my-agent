@@ -2,7 +2,7 @@
 
 import click
 
-from agent.cli import add, info, providers, run, status
+from agent.cli import add, info, providers, publish, run, status
 
 
 @click.group()
@@ -24,6 +24,7 @@ def main():
 
 main.add_command(providers.provider)
 main.add_command(add.add)
+main.add_command(publish.publish)
 main.add_command(run.run)
 main.add_command(info.info)
 main.add_command(status.status)
