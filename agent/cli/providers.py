@@ -104,9 +104,9 @@ def list_providers():
     """List configured providers."""
     store = _load_store()
     if not store:
-        click.echo("No providers configured. Use 'my-agent provider add' first.")
+        click.echo("No providers configured. Use 'therain2020-agent provider add' first.")
         click.echo("\nExamples:")
-        click.echo("  my-agent provider add qwen --adapter custom \\")
+        click.echo("  therain2020-agent provider add qwen --adapter custom \\")
         click.echo("    --api-key-env ALI_TONGYI_KEY \\")
         click.echo("    --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \\")
         click.echo("    --model qwen-plus")
@@ -121,7 +121,7 @@ def test(name: str):
     """Test a provider's connectivity."""
     store = _load_store()
     if name not in store:
-        click.echo(f"Provider '{name}' not found. Use 'my-agent provider add' first.", err=True)
+        click.echo(f"Provider '{name}' not found. Use 'therain2020-agent provider add' first.", err=True)
         return
 
     cfg_data = store[name]

@@ -81,7 +81,10 @@ class ImportedToolSupervisor:
         client = self._mcp_clients.get(server_name)
         if not client:
             from agent.errors import ToolError
-            raise ToolError(f"MCP server '{server_name}' not running. Use 'my-agent tools list' to check status.")
+            raise ToolError(
+                f"MCP server '{server_name}' not running. "
+                f"Use 'therain2020-agent tools list' to check status."
+            )
 
         result = await client.call_tool(tool_name, params)
         return result

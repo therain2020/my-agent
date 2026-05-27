@@ -1,7 +1,7 @@
-# my-agent config.yaml example
+# therain2020-agent config.yaml example
 
 agent:
-  name: my-agent
+  name: therain2020-agent
   max_loop_iterations: 3
 
 llm:

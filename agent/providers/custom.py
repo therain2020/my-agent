@@ -15,7 +15,7 @@ class CustomProvider(OpenAIProvider):
         if not config.base_url:
             raise ValueError(
                 "Custom provider requires --base-url. "
-                "Example: my-agent provider add custom --base-url http://localhost:11434/v1"
+                "Example: therain2020-agent provider add custom --base-url http://localhost:11434/v1"
             )
         super().__init__(config)
 

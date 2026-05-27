@@ -26,9 +26,9 @@ def tools_list(source: str):
     if not tools:
         click.echo("No tools registered.")
         click.echo("\nAdd tools:")
-        click.echo("  my-agent add discover")
-        click.echo("  my-agent add from-claude-code")
-        click.echo("  my-agent add mcp <command>")
+        click.echo("  therain2020-agent add discover")
+        click.echo("  therain2020-agent add from-claude-code")
+        click.echo("  therain2020-agent add mcp <command>")
         return
 
     click.echo(f"{'Name':30s} {'Source':25s} {'Runtime':10s} {'Capabilities'}")
@@ -50,8 +50,8 @@ def dont_do_list():
     if not rules:
         click.echo("No dont-do rules loaded.")
         click.echo("\nDont-do rules are imported from:")
-        click.echo("  my-agent add from-claude-code  (settings.json permissions.deny)")
-        click.echo("  my-agent add settings <path>")
+        click.echo("  therain2020-agent add from-claude-code  (settings.json permissions.deny)")
+        click.echo("  therain2020-agent add settings <path>")
         click.echo("  Or write them manually in dont-do/*.md")
         return
 

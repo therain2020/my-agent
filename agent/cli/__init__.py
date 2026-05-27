@@ -6,18 +6,18 @@ from agent.cli import add, info, providers, run, status
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="my-agent")
+@click.version_option(version="0.1.0", prog_name="therain2020-agent")
 def main():
-    """my-agent: Add-First Agent skeleton.
+    """therain2020-agent: Add-First Agent skeleton.
 
     Bring your own LLM. Bring your own tools (Claude Code, Codex, Gemini, MCP).
 
     Quick start:
-      my-agent provider add anthropic --api-key-env ANTHROPIC_API_KEY
-      my-agent add discover
-      my-agent add from-claude-code
-      my-agent tools list
-      my-agent run "your task"
+      therain2020-agent provider add anthropic --api-key-env ANTHROPIC_API_KEY
+      therain2020-agent add discover
+      therain2020-agent add from-claude-code
+      therain2020-agent tools list
+      therain2020-agent run "your task"
     """
     pass
 

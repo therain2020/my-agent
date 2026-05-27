@@ -15,14 +15,14 @@ def run(task: str, provider: str) -> None:
     """Execute a task in TODO mode.
 
     Examples:
-      my-agent run "read README.md and summarize it"
-      my-agent run "use the git tool to commit changes with a Chinese message"
+      therain2020-agent run "read README.md and summarize it"
+      therain2020-agent run "use the git tool to commit changes with a Chinese message"
     """
     prov = get_provider(provider)
     if prov is None:
         click.echo(
             "No LLM provider configured.\n"
-            "Run: my-agent provider add <name> --adapter <anthropic|openai|deepseek|custom> "
+            "Run: therain2020-agent provider add <name> --adapter <anthropic|openai|deepseek|custom> "
             "--api-key-env <ENV_VAR> --model <model>",
             err=True,
         )

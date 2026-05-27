@@ -36,9 +36,9 @@ def add():
       3. Single:     add skill, add plugin, add mcp, add settings, ...
 
     Examples:
-      my-agent add discover
-      my-agent add from-claude-code
-      my-agent add mcp "npx @anthropic/mcp-server-git"
+      therain2020-agent add discover
+      therain2020-agent add from-claude-code
+      therain2020-agent add mcp "npx @anthropic/mcp-server-git"
     """
     pass
 
@@ -59,8 +59,8 @@ def discover():
     if not result.installed_agents:
         click.echo("No installed AI agents detected.")
         click.echo("\nYou can still add tools manually:")
-        click.echo("  my-agent add mcp <command>")
-        click.echo("  my-agent add skill <path>")
+        click.echo("  therain2020-agent add mcp <command>")
+        click.echo("  therain2020-agent add skill <path>")
         return
 
     click.echo(f"Detected {len(result.installed_agents)} agent(s):\n")
@@ -79,7 +79,7 @@ def discover():
             if f.description:
                 click.echo(f"       {f.description[:80]}")
 
-    click.echo("\nTo migrate: my-agent add from-<agent-name>")
+    click.echo("\nTo migrate: therain2020-agent add from-<agent-name>")
 
 
 @add.command()
@@ -174,11 +174,11 @@ def from_claude_code(yes: bool):
                 click.echo(f"  Imported plain text: {f.name} ({len(content)} chars)")
 
             elif f.type == "mcp" and f.command:
-                click.echo(f"  MCP server: {f.name} -> use 'my-agent add mcp \"{f.command}\"' to import")
+                click.echo(f"  MCP server: {f.name} -> use 'therain2020-agent add mcp \"{f.command}\"' to import")
         except Exception as e:
             click.echo(f"  Error importing {f.name}: {e}", err=True)
 
-    click.echo(f"\nImported {imported} tool(s). Run 'my-agent tools list' to see them.")
+    click.echo(f"\nImported {imported} tool(s). Run 'therain2020-agent tools list' to see them.")
 
 
 @add.command(name="from-codex")
@@ -339,8 +339,8 @@ def mcp(source: str):
     if validation.passed:
         registry.register(tool_def)
         click.echo(f"Imported MCP server '{tool_def.name}' (transport={transport})")
-        click.echo(f"\nStart with: my-agent supervisor start {tool_def.name}")
-        click.echo(f"Then: my-agent run \"use {tool_def.name} to ...\"")
+        click.echo(f"\nStart with: therain2020-agent supervisor start {tool_def.name}")
+        click.echo(f"Then: therain2020-agent run \"use {tool_def.name} to ...\"")
     else:
         click.echo("Import failed validation. Fix errors and try again.", err=True)
 
@@ -375,7 +375,7 @@ def settings(path: str):
     for p in result.probes:
         click.echo(f"  - {p['point']}: {p['command'][:60]}")
 
-    click.echo("\nRun 'my-agent dont-do list' to see active rules.")
+    click.echo("\nRun 'therain2020-agent dont-do list' to see active rules.")
 
 
 @add.command(name="cursor-rules")
@@ -406,7 +406,7 @@ def list():
     registry = _get_registry()
     imported = [t for t in registry.list_all() if t.source != "builtin"]
     if not imported:
-        click.echo("No imported tools. Use 'my-agent add discover' to find tools.")
+        click.echo("No imported tools. Use 'therain2020-agent add discover' to find tools.")
         return
 
     for t in imported:

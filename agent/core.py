@@ -83,7 +83,7 @@ class Agent:
         if self._provider is None:
             raise RuntimeError(
                 "No LLM provider configured. "
-                "Run: my-agent provider add <name> --api-key-env <ENV_VAR> --model <model>"
+                "Run: therain2020-agent provider add <name> --api-key-env <ENV_VAR> --model <model>"
             )
         return self._provider
 

@@ -8,7 +8,7 @@ from .errors import ConfigError
 
 DEFAULT_CONFIG = {
     "agent": {
-        "name": "my-agent",
+        "name": "therain2020-agent",
         "max_loop_iterations": 3,
     },
     "llm": {

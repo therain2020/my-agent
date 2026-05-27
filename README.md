@@ -1,4 +1,4 @@
-# my-agent
+# therain2020-agent
 
 **Add-First Agent 骨架。** Bring your own LLM. Bring your own tools.
 
@@ -17,68 +17,68 @@
 pip install -e .
 
 # 2. 接入 LLM
-my-agent provider add anthropic --adapter anthropic --api-key-env ANTHROPIC_API_KEY --model claude-sonnet-4-6
+therain2020-agent provider add anthropic --adapter anthropic --api-key-env ANTHROPIC_API_KEY --model claude-sonnet-4-6
 # 或者用通义千问 (OpenAI 兼容)
-my-agent provider add qwen --adapter custom --api-key-env ALI_TONGYI_KEY --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 --model qwen-plus
+therain2020-agent provider add qwen --adapter custom --api-key-env ALI_TONGYI_KEY --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 --model qwen-plus
 
 # 3. 发现本机已有的 agent 生态
-my-agent add discover
+therain2020-agent add discover
 
 # 4. 一键迁移
-my-agent add from-claude-code
+therain2020-agent add from-claude-code
 
 # 5. 跑起来
-my-agent run "用 git 工具提交最近的改动"
+therain2020-agent run "用 git 工具提交最近的改动"
 ```
 
 ## 核心命令
 
 ### LLM Provider
 ```bash
-my-agent provider add <name> --adapter anthropic|openai|deepseek|custom ...
-my-agent provider list
-my-agent provider test <name>
-my-agent provider remove <name>
+therain2020-agent provider add <name> --adapter anthropic|openai|deepseek|custom ...
+therain2020-agent provider list
+therain2020-agent provider test <name>
+therain2020-agent provider remove <name>
 ```
 
 ### 添加工具 (headline feature)
 ```bash
 # 发现
-my-agent add discover             # 扫描本机安装的所有 AI agent
-my-agent add search <keyword>     # 搜索可导入项
+therain2020-agent add discover             # 扫描本机安装的所有 AI agent
+therain2020-agent add search <keyword>     # 搜索可导入项
 
 # 一键迁移
-my-agent add from-claude-code     # 迁移 Claude Code 全部内容
-my-agent add from-codex           # 迁移 Codex CLI
-my-agent add from-gemini          # 迁移 Gemini CLI
-my-agent add from-cursor          # 迁移 Cursor
+therain2020-agent add from-claude-code     # 迁移 Claude Code 全部内容
+therain2020-agent add from-codex           # 迁移 Codex CLI
+therain2020-agent add from-gemini          # 迁移 Gemini CLI
+therain2020-agent add from-cursor          # 迁移 Cursor
 
 # 单项导入
-my-agent add skill <path>         # 导入 SKILL.md
-my-agent add plugin <path>        # 导入 .claude-plugin/
-my-agent add mcp <command>        # 导入 MCP Server
-my-agent add settings <path>      # 导入 settings.json
-my-agent add claude-md <path>     # 导入 CLAUDE.md
-my-agent add cursor-rules <dir>   # 导入 Cursor rules
+therain2020-agent add skill <path>         # 导入 SKILL.md
+therain2020-agent add plugin <path>        # 导入 .claude-plugin/
+therain2020-agent add mcp <command>        # 导入 MCP Server
+therain2020-agent add settings <path>      # 导入 settings.json
+therain2020-agent add claude-md <path>     # 导入 CLAUDE.md
+therain2020-agent add cursor-rules <dir>   # 导入 Cursor rules
 
 # 管理
-my-agent add list                 # 列出已导入
-my-agent add info <name>          # 查看详情
-my-agent add remove <name>        # 删除
-my-agent add update <name>        # 重新导入
+therain2020-agent add list                 # 列出已导入
+therain2020-agent add info <name>          # 查看详情
+therain2020-agent add remove <name>        # 删除
+therain2020-agent add update <name>        # 重新导入
 ```
 
 ### 执行任务
 ```bash
-my-agent run "你的任务描述"        # TODO 模式 (Phase 1)
+therain2020-agent run "你的任务描述"        # TODO 模式 (Phase 1)
 ```
 
 ### 查询
 ```bash
-my-agent info tools               # 列出所有工具
-my-agent info dont-do             # 列出非集规则
-my-agent info config              # 查看配置
-my-agent status show              # 会话状态
+therain2020-agent info tools               # 列出所有工具
+therain2020-agent info dont-do             # 列出非集规则
+therain2020-agent info config              # 查看配置
+therain2020-agent status show              # 会话状态
 ```
 
 ## 支持的 LLM Provider
@@ -104,7 +104,7 @@ my-agent status show              # 会话状态
 ## 项目结构
 
 ```
-my-agent/
+therain2020-agent/
 ├── agent/
 │   ├── cli/              CLI (Click) — add/providers/run/info/status
 │   ├── core.py           Agent 事件循环
