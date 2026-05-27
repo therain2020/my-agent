@@ -1,0 +1,20 @@
+---
+name: karpathy-guidelines
+description: Behavioral guidelines to reduce common LLM coding mistakes
+allowed-tools: [Read, Write, Bash]
+triggers: [coding, writing, refactoring, reviewing]
+---
+
+# Karpathy-Inspired Coding Guidelines
+
+## 1. Think Before Coding
+Don't assume. Don't hide confusion. Surface tradeoffs.
+
+## 2. Simplicity First
+Minimum code that solves the problem. Nothing speculative.
+
+## 3. Surgical Changes
+Touch only what you must. Clean up only your own mess.
+
+## 4. Goal-Driven Execution
+Define success criteria. Loop until verified.

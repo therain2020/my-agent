@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Generated tools
+tools/.generated/
+
+# Memory
+memory/episodic/*/
+memory/2026-*/
+
+# Logs
+logs/*.log
+logs/*.jsonl
+logs/errors/
+
+# IDE
+.vscode/
+.idea/
+
+# Env
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db

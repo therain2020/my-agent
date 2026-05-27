@@ -1,0 +1,26 @@
+# my-agent config.yaml example
+
+agent:
+  name: my-agent
+  max_loop_iterations: 3
+
+llm:
+  providers:
+    - name: anthropic
+      model: claude-sonnet-4-6
+      api_key_env: ANTHROPIC_API_KEY
+      priority: primary
+      max_retries: 5
+      timeout: 120
+
+memory:
+  path: ./memory
+
+tools:
+  scan_paths:
+    - ./tools
+    - ./tools/.generated
+
+security:
+  dont_do_paths:
+    - ./dont-do
