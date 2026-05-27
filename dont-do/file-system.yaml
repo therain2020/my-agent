@@ -1,0 +1,22 @@
+rules:
+  - id: "r-fs-001"
+    description: "禁止写入系统目录"
+    hook: [PLAN, PRE_ACTION]
+    match:
+      object: file
+      operation: [write, delete]
+      path_in_restricted: true
+    action: REJECT
+    message: "禁止写入受保护的系统路径"
+    source: builtin
+
+  - id: "r-fs-002"
+    description: "禁止修改 .env 和 .git 目录"
+    hook: [PRE_ACTION]
+    match:
+      object: file
+      operation: [write, delete]
+      path_matches: ".env|.git/"
+    action: REJECT
+    message: "禁止修改配置文件或 Git 目录。如需修改 .env，请手动操作。"
+    source: builtin
