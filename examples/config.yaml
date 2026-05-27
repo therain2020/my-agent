@@ -14,7 +14,7 @@ llm:
       timeout: 120
 
 memory:
-  path: ./memory
+  path: ./memory              # SQLite DB stored as ./memory/agent.db
 
 tools:
   scan_paths:

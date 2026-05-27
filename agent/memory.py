@@ -1,10 +1,12 @@
-"""Memory system. Phase 1: episodic log only (Markdown append-only).
+"""Memory system with SQLite WAL backend. Phase 2.
 
-Phase 1 records: timestamp, task type, task summary, tools used, result.
-
-Phase 2 will add: semantic memory + consolidation + LRU cache.
+Episodic: task execution records.
+Semantic: distilled knowledge (preferences, facts, patterns).
+FTS5 full-text search for fast retrieval.
 """
 
+import json
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +14,8 @@ from pathlib import Path
 import structlog
 
 logger = structlog.get_logger()
+
+# ——— Data classes ———
 
 
 @dataclass
@@ -28,126 +32,240 @@ class EpisodeEntry:
     timestamp: str = ""
 
 
-class EpisodicMemory:
-    """Append-only episodic log. 类比: WAL / append-only log.
+@dataclass
+class SemanticEntry:
+    """A distilled knowledge entry."""
+    id: str
+    type: str  # "preference" | "fact" | "pattern"
+    content: str
+    confidence: float
+    source_episodes: list[str] = field(default_factory=list)
+    created_at: str = ""
+    last_verified_at: str = ""
+    reference_count: int = 0
 
-    Records each task execution to a Markdown file.
-    Directory structure: memory/episodic/YYYY-MM/
-    """
 
-    def __init__(self, base_path: str = "./memory/episodic"):
-        self._base = Path(base_path)
-        self._base.mkdir(parents=True, exist_ok=True)
+# ——— SQLite backend ———
 
-    def log_episode(self, entry: EpisodeEntry) -> Path:
-        """Record a task execution episode.
 
-        Appends to the current month's log file.
-        """
-        entry.timestamp = datetime.now(UTC).isoformat()
+class MemoryStore:
+    """SQLite-based memory backend with WAL mode. 类比: ext4 journal."""
 
-        month_dir = self._base / datetime.now().strftime("%Y-%m")
-        month_dir.mkdir(parents=True, exist_ok=True)
+    def __init__(self, db_path: str = "memory/agent.db"):
+        self.db_path = Path(db_path)
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
+        self.conn.execute("PRAGMA cache_size=-8000")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self._create_tables()
 
-        log_file = month_dir / "episodes.md"
+    def _create_tables(self):
+        self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS episodic (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                task_summary TEXT NOT NULL,
+                tools_used TEXT DEFAULT '[]',
+                steps INTEGER DEFAULT 0,
+                success INTEGER DEFAULT 0,
+                error TEXT DEFAULT '',
+                non_set_changes TEXT DEFAULT '[]',
+                consolidated INTEGER DEFAULT 0
+            );
 
-        # Build markdown entry
-        status = "✓" if entry.success else "✗"
-        md_entry = f"""### {entry.timestamp} | {entry.task_type} | {status}
+            CREATE TABLE IF NOT EXISTS semantic (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL CHECK(type IN ('preference','fact','pattern')),
+                content TEXT NOT NULL,
+                confidence REAL DEFAULT 0.5,
+                source_episodes TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                last_verified_at TEXT,
+                reference_count INTEGER DEFAULT 0
+            );
 
-**任务**: {entry.task_summary}
-**工具**: {', '.join(entry.tools_used) if entry.tools_used else 'none'}
-**步骤数**: {entry.steps}
-**结果**: {'成功' if entry.success else '失败'}
-{chr(10) + '**错误**: ' + entry.error if entry.error else ''}
-{chr(10) + '**非集变动**: ' + ', '.join(entry.non_set_changes) if entry.non_set_changes else ''}
+            CREATE VIRTUAL TABLE IF NOT EXISTS semantic_fts
+                USING fts5(content, content=semantic, content_rowid=rowid);
+        """)
+        self.conn.commit()
 
----
-"""
-        with open(log_file, "a", encoding="utf-8") as f:
-            f.write(md_entry)
+    def close(self):
+        self.conn.close()
 
-        logger.info("episode_logged", task_id=entry.task_id, file=str(log_file))
-        return log_file
+    # ——— Episodic ———
+
+    def log_episode(self, entry: EpisodeEntry) -> None:
+        entry.timestamp = entry.timestamp or datetime.now(UTC).isoformat()
+        self.conn.execute(
+            """INSERT OR REPLACE INTO episodic
+               (id, timestamp, task_type, task_summary, tools_used,
+                steps, success, error, non_set_changes, consolidated)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+            (entry.task_id, entry.timestamp, entry.task_type,
+             entry.task_summary, json.dumps(entry.tools_used),
+             entry.steps, int(entry.success), entry.error,
+             json.dumps(entry.non_set_changes)),
+        )
+        self.conn.commit()
+        logger.info("episode_logged", task_id=entry.task_id)
 
     def get_recent(self, count: int = 10) -> list[EpisodeEntry]:
-        """Get recent episodes (best effort from current month file)."""
-        month_dir = self._base / datetime.now().strftime("%Y-%m")
-        if not month_dir.exists():
-            return []
+        rows = self.conn.execute(
+            "SELECT * FROM episodic ORDER BY timestamp DESC LIMIT ?",
+            (count,),
+        ).fetchall()
+        return [self._row_to_episode(r) for r in rows]
 
-        entries = []
-        log_file = month_dir / "episodes.md"
-        if log_file.exists():
-            # Parse markdown entries (simplified)
-            content = log_file.read_text(encoding="utf-8")
-            for block in content.split("---"):
-                block = block.strip()
-                if block.startswith("### "):
-                    entry = self._parse_block(block)
-                    if entry:
-                        entries.append(entry)
+    def get_unconsolidated(self) -> list[EpisodeEntry]:
+        rows = self.conn.execute(
+            "SELECT * FROM episodic WHERE consolidated = 0 ORDER BY timestamp"
+        ).fetchall()
+        return [self._row_to_episode(r) for r in rows]
 
-        return entries[-count:]
+    def mark_consolidated(self, episode_ids: list[str]) -> None:
+        self.conn.executemany(
+            "UPDATE episodic SET consolidated = 1 WHERE id = ?",
+            [(eid,) for eid in episode_ids],
+        )
+        self.conn.commit()
 
     def stats(self) -> dict:
-        """Basic statistics."""
-        entries = self.get_recent(100)
-        total = len(entries)
-        if not total:
-            return {"total_episodes": 0}
-
-        success_count = sum(1 for e in entries if e.success)
+        row = self.conn.execute(
+            "SELECT COUNT(*) as total, AVG(steps) as avg_steps, "
+            "SUM(CASE WHEN success THEN 1 ELSE 0 END) as success_count "
+            "FROM episodic"
+        ).fetchone()
+        total = row["total"]
         return {
             "total_episodes": total,
-            "success_rate": round(success_count / total * 100, 1) if total else 0,
-            "avg_steps": round(sum(e.steps for e in entries) / total, 1),
+            "success_rate": round(row["success_count"] / total * 100, 1) if total else 0,
+            "avg_steps": round(row["avg_steps"], 1) if row["avg_steps"] else 0,
         }
 
-    def _parse_block(self, block: str) -> EpisodeEntry | None:
-        """Parse a single episode block from markdown."""
-        lines = block.split("\n")
-        if not lines:
-            return None
+    # ——— Semantic ———
 
-        header = lines[0]
-        # Format: "### 2026-05-27T... | goal | ✓"
-        parts = header.replace("### ", "").split("|")
-        if len(parts) < 3:
-            return None
-
-        timestamp = parts[0].strip()
-        task_type = parts[1].strip()
-        success = "✓" in parts[2]
-
-        task_summary = ""
-        tools_used = []
-        steps = 0
-        error = ""
-
-        for line in lines[1:]:
-            line = line.strip()
-            if line.startswith("**任务**:"):
-                task_summary = line.replace("**任务**:", "").strip()
-            elif line.startswith("**工具**:"):
-                tools_str = line.replace("**工具**:", "").strip()
-                if tools_str and tools_str != "none":
-                    tools_used = [t.strip() for t in tools_str.split(",")]
-            elif line.startswith("**步骤数**:"):
-                try:
-                    steps = int(line.replace("**步骤数**:", "").strip())
-                except ValueError:
-                    pass
-            elif line.startswith("**错误**:"):
-                error = line.replace("**错误**:", "").strip()
-
-        return EpisodeEntry(
-            task_id=f"parsed-{timestamp}",
-            task_type=task_type,
-            task_summary=task_summary,
-            tools_used=tools_used,
-            steps=steps,
-            success=success,
-            error=error,
-            timestamp=timestamp,
+    def upsert_semantic(self, entry: SemanticEntry) -> None:
+        entry.created_at = entry.created_at or datetime.now(UTC).isoformat()
+        self.conn.execute(
+            """INSERT INTO semantic
+               (id, type, content, confidence, source_episodes,
+                created_at, last_verified_at, reference_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+               content=excluded.content,
+               confidence=excluded.confidence,
+               source_episodes=excluded.source_episodes,
+               last_verified_at=excluded.last_verified_at,
+               reference_count=reference_count + 1""",
+            (entry.id, entry.type, entry.content, entry.confidence,
+             json.dumps(entry.source_episodes), entry.created_at,
+             entry.last_verified_at, entry.reference_count),
         )
+        self.conn.commit()
+
+    def search_semantic(self, keyword: str, limit: int = 10) -> list[SemanticEntry]:
+        rows = self.conn.execute(
+            "SELECT s.* FROM semantic s "
+            "INNER JOIN semantic_fts f ON s.rowid = f.rowid "
+            "WHERE semantic_fts MATCH ? "
+            "ORDER BY s.confidence DESC, s.reference_count DESC "
+            "LIMIT ?",
+            (keyword, limit),
+        ).fetchall()
+
+        if not rows:
+            rows = self.conn.execute(
+                "SELECT * FROM semantic WHERE content LIKE ? "
+                "ORDER BY confidence DESC LIMIT ?",
+                (f"%{keyword}%", limit),
+            ).fetchall()
+
+        return [self._row_to_semantic(r) for r in rows]
+
+    def list_semantic(self, entry_type: str = "", min_confidence: float = 0.0) -> list[SemanticEntry]:
+        where = []
+        params = []
+        if entry_type:
+            where.append("type = ?")
+            params.append(entry_type)
+        if min_confidence:
+            where.append("confidence >= ?")
+            params.append(min_confidence)
+        query = "SELECT * FROM semantic"
+        if where:
+            query += " WHERE " + " AND ".join(where)
+        query += " ORDER BY confidence DESC"
+        rows = self.conn.execute(query, params).fetchall()
+        return [self._row_to_semantic(r) for r in rows]
+
+    def delete_low_confidence(self, threshold: float = 0.3) -> int:
+        cur = self.conn.execute(
+            "DELETE FROM semantic WHERE confidence < ?", (threshold,)
+        )
+        self.conn.commit()
+        return cur.rowcount
+
+    def semantic_stats(self) -> dict:
+        row = self.conn.execute(
+            "SELECT COUNT(*) as total, AVG(confidence) as avg_confidence, "
+            "type FROM semantic GROUP BY type"
+        ).fetchone()
+        total_row = self.conn.execute("SELECT COUNT(*) FROM semantic").fetchone()
+        return {
+            "total": total_row[0],
+            "by_type": {"avg_confidence": round(row["avg_confidence"], 2)} if row else {},
+        }
+
+    # ——— Helpers ———
+
+    def _row_to_episode(self, row) -> EpisodeEntry:
+        return EpisodeEntry(
+            task_id=row["id"],
+            task_type=row["task_type"],
+            task_summary=row["task_summary"],
+            tools_used=json.loads(row["tools_used"]),
+            steps=row["steps"],
+            success=bool(row["success"]),
+            error=row["error"],
+            non_set_changes=json.loads(row["non_set_changes"]),
+            timestamp=row["timestamp"],
+        )
+
+    def _row_to_semantic(self, row) -> SemanticEntry:
+        return SemanticEntry(
+            id=row["id"],
+            type=row["type"],
+            content=row["content"],
+            confidence=row["confidence"],
+            source_episodes=json.loads(row["source_episodes"]),
+            created_at=row["created_at"],
+            last_verified_at=row["last_verified_at"],
+            reference_count=row["reference_count"],
+        )
+
+
+# ——— Backward-compatible wrapper ———
+
+
+class EpisodicMemory:
+    """Backward-compatible wrapper. 委托给 MemoryStore."""
+
+    def __init__(self, db_path: str = "memory/agent.db"):
+        self._store = MemoryStore(db_path)
+
+    def log_episode(self, entry: EpisodeEntry) -> None:
+        self._store.log_episode(entry)
+
+    def get_recent(self, count: int = 10) -> list[EpisodeEntry]:
+        return self._store.get_recent(count)
+
+    def stats(self) -> dict:
+        return self._store.stats()
+
+    @property
+    def store(self) -> MemoryStore:
+        return self._store
