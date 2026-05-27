@@ -2,20 +2,48 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [master]
+    paths:
+      - 'pyproject.toml'
 
 jobs:
   pypi:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Read version
+        id: version
+        run: |
+          VER=$(python -c "import re; f=open('pyproject.toml').read(); m=re.search(r'version\s*=\s*\"([^\"]+)\"', f); print(m.group(1))")
+          echo "version=$VER" >> $GITHUB_OUTPUT
+
+      - name: Check if tag exists
+        run: |
+          if git rev-parse "v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "Tag v${{ steps.version.outputs.version }} already exists, skipping."
+            exit 1
+          fi
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ steps.version.outputs.version }}"
+          git push origin "v${{ steps.version.outputs.version }}"
+
       - name: Build
         run: |
           pip install build
           python -m build
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

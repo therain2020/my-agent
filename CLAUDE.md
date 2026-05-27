@@ -76,3 +76,17 @@ ruff check agent/ tests/
 # 构建
 python -m build
 ```
+
+## Release Flow
+
+```
+1. python scripts/bump_version.py patch|minor|major
+2. Update CHANGELOG.md
+3. git checkout -b feat/release-vX.Y.Z
+4. git add ... && git commit
+5. git push && gh pr create → wait CI → merge
+6. CI auto-creates tag vX.Y.Z and publishes to PyPI
+   (release.yml triggers on push to master when pyproject.toml changes)
+```
+
+**Never** push a tag manually. The release workflow creates the tag from the merged master commit — this guarantees the tag and the published package always match the code on master.
