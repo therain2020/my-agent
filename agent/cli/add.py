@@ -478,6 +478,31 @@ def remove(name: str, dry_run: bool):
 
 @add.command()
 @click.argument("name")
+def consolidate(name: str):
+    """Manually trigger memory consolidation."""
+    from agent.cli.providers import get_provider
+    from agent.consolidation import ConsolidationDaemon
+    from agent.memory import EpisodicMemory
+
+    mem = EpisodicMemory()
+    provider = get_provider()
+    daemon = ConsolidationDaemon(store=mem.store, provider=provider)
+
+    should, reason = daemon.should_consolidate(manual=True)
+    if not should:
+        click.echo(f"No consolidation needed: {reason}")
+        return
+
+    click.echo(f"Consolidating ({reason})...")
+    import asyncio
+    result = asyncio.run(daemon.consolidate(manual=True))
+    click.echo(f"New: {result.get('new', 0)}, "
+               f"Merged: {result.get('merged', 0)}, "
+               f"Deleted: {result.get('deleted', 0)}")
+
+
+@add.command()
+@click.argument("name")
 def update(name: str):
     """Re-import a tool from its original source."""
     tool = _get_registry().get(name)
