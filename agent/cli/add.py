@@ -84,30 +84,61 @@ def discover():
 
 @add.command()
 @click.argument("keyword")
-def search(keyword: str):
-    """Search for importable items (local only in phase 1)."""
+@click.option("--source", "-s", default="all",
+              type=click.Choice(["all", "local", "github", "mcp-registry"]))
+@click.option("--remote/--no-remote", default=True, help="Include remote sources")
+def search(keyword: str, source: str, remote: bool):
+    """Search for importable items (local + remote).
+
+    Searches: local installed agents, GitHub, MCP Registry.
+    """
     from agent.tools.adapters.scanner import InstalledAgentScanner
 
-    scanner = InstalledAgentScanner()
-    result = scanner.scan_all()
+    all_matches = []
 
-    matches = []
-    for agent_result in result.results:
-        for f in agent_result.findings:
-            if keyword.lower() in f.name.lower() or \
-               keyword.lower() in f.description.lower():
-                matches.append((agent_result.agent_name, f))
+    # Local search
+    if source in ("all", "local"):
+        scanner = InstalledAgentScanner()
+        result = scanner.scan_all()
+        for agent_result in result.results:
+            for f in agent_result.findings:
+                if keyword.lower() in f.name.lower() or \
+                   keyword.lower() in f.description.lower():
+                    all_matches.append((
+                        agent_result.agent_name, f.name, f.type, f.description, ""
+                    ))
 
-    if not matches:
-        click.echo(f"No matches for '{keyword}' in local agents.")
-        click.echo("Remote marketplace search coming in phase 2.")
+    # Remote search
+    if remote and source in ("all", "github", "mcp-registry"):
+        click.echo(f"Searching remote sources for '{keyword}'...")
+        import asyncio
+
+        from agent.tools.adapters.remote_search import RemoteSearchAggregator
+
+        async def _remote():
+            agg = RemoteSearchAggregator()
+            return await agg.search(keyword, limit=15)
+
+        try:
+            remote_results = asyncio.run(_remote())
+            for r in remote_results:
+                if source == "all" or r.source == source:
+                    stars = f"[{r.stars}*]" if r.stars else ""
+                    all_matches.append((
+                        r.source, r.name, r.type, r.description, stars,
+                    ))
+        except Exception as e:
+            click.echo(f"  Remote search unavailable: {e}")
+
+    if not all_matches:
+        click.echo(f"No matches for '{keyword}'.")
         return
 
-    click.echo(f"Found {len(matches)} match(es) for '{keyword}':\n")
-    for agent_name, f in matches:
-        click.echo(f"  {f.name:30s} ({agent_name}, {f.type})")
-        if f.description:
-            click.echo(f"    {f.description[:100]}")
+    click.echo(f"Found {len(all_matches)} match(es) for '{keyword}':\n")
+    for src, name, typ, desc, extra in all_matches:
+        click.echo(f"  {name:35s} ({src}, {typ}) {extra}")
+        if desc:
+            click.echo(f"    {desc[:100]}")
 
 
 # === Layer 2: Migration ===
