@@ -3,12 +3,14 @@
 import asyncio
 import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
 
 from .config import load_config
 from .consolidation import ConsolidationDaemon
+from .dont_do import DontDoEngine, HookPoint, Verdict
 from .errors import InterruptSignal
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
@@ -52,10 +54,15 @@ class Agent:
         self.interrupt = InterruptHandler()
         self.prompt_assembler = PromptAssembler()
         self.tool_result_mgr = ToolResultManager()
+        self.dont_do = DontDoEngine()
 
         # LLM Provider (lazy)
         self._provider: LLMProvider | None = None
         self._provider_config: ProviderConfig | None = None
+
+        # Phase 1: runtime tracking
+        self._non_set_changes: list[dict] = []
+        self._observed_objects: dict = {}
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""
@@ -67,11 +74,13 @@ class Agent:
         """Initialize all subsystems."""
         self.registry.scan()
         self.security.load_rules()
+        self.dont_do.load_rules(self.config["security"]["dont_do_paths"])
         self.interrupt.setup()
         logger.info("agent_setup",
                      session=self.session_id,
                      tools=len(self.registry.list_all()),
-                     dont_do_rules=len(self.security.list_rules()))
+                     dont_do_rules=len(self.security.list_rules()),
+                     runtime_rules=len(self.dont_do.list_rules()))
 
     def teardown(self) -> None:
         """Clean up all subsystems."""
@@ -82,6 +91,48 @@ class Agent:
         except RuntimeError:
             # No running event loop, skip async cleanup
             pass
+
+    def _track_non_set_change(self, action: str, rule_id: str,
+                               reason: str, context: dict) -> None:
+        """Record a dont-do rule change for later persistence."""
+        self._non_set_changes.append({
+            "time": datetime.now(UTC).isoformat(),
+            "action": action,
+            "rule_id": rule_id,
+            "reason": reason,
+            "context": context,
+        })
+
+    def _capture_object_states(self) -> tuple[dict, dict, list]:
+        """Extract serializable state snapshots from observed objects."""
+        before = {}
+        after = {}
+        changes = []
+        for uri, obj in self._observed_objects.items():
+            sb = getattr(obj, "state_before", None)
+            sa = getattr(obj, "state_after", None)
+            if sb and hasattr(sb, "properties"):
+                before[uri] = sb.properties
+            if sa and hasattr(sa, "properties"):
+                after[uri] = sa.properties
+            if hasattr(obj, "state_changed") and obj.state_changed:
+                diff = obj.diff if hasattr(obj, "diff") else {}
+                for k, v in diff.items():
+                    changes.append({
+                        "uri": uri, "field": k,
+                        "before": v.get("before"), "after": v.get("after"),
+                    })
+        return before, after, changes
+
+    def _check_dont_do(self, hook: HookPoint, ctx: dict) -> tuple[Verdict, str]:
+        """Check dont-do rules at a hook point. Returns (verdict, message)."""
+        verdict, msg = self.dont_do.check(hook, ctx)
+        if verdict != Verdict.ALLOW:
+            self._track_non_set_change(
+                "hit", ctx.get("rule_id", "unknown"),
+                msg, ctx
+            )
+        return verdict, msg
 
     def _get_provider(self) -> LLMProvider:
         """Get or raise if no provider configured."""
@@ -178,12 +229,27 @@ class Agent:
             # Execute tool calls
             for tc in tool_calls:
                 await self.interrupt.check()
-                try:
-                    tool_def = self.registry.get(tc["tool"])
-                    if not tool_def:
-                        conversation += f"\n[Error] 未找到工具: {tc['tool']}"
-                        continue
 
+                tool_def = self.registry.get(tc["tool"])
+                if not tool_def:
+                    conversation += f"\n[Error] 未找到工具: {tc['tool']}"
+                    continue
+
+                # PRE_ACTION dont-do check
+                obj_type = tool_def.objects[0] if tool_def.objects else "unknown"
+                verdict, msg = self._check_dont_do(HookPoint.PRE_ACTION, {
+                    "object": obj_type,
+                    "operation": tc["capability"],
+                    "tool": tc["tool"],
+                    "params": tc.get("params", {}),
+                })
+                if verdict == Verdict.REJECT:
+                    conversation += f"\n[Blocked] {msg}"
+                    continue
+                elif verdict == Verdict.WARN:
+                    conversation += f"\n[Warning] {msg}"
+
+                try:
                     result = await self.executor.execute(
                         tool_def, tc["capability"], tc.get("params", {})
                     )
@@ -193,6 +259,14 @@ class Agent:
                     result_str = str(result)[:2000]
                     conversation += f"\n[Result from {tc['tool']}.{tc['capability']}]: {result_str}"
 
+                    # POST_ACTION dont-do check
+                    self._check_dont_do(HookPoint.POST_ACTION, {
+                        "object": obj_type,
+                        "operation": tc["capability"],
+                        "tool": tc["tool"],
+                        "result": result_str[:500],
+                    })
+
                 except InterruptSignal:
                     raise
                 except Exception as e:
@@ -201,6 +275,7 @@ class Agent:
 
         # Record episode
         success = not last_error
+        objects_before, objects_after, object_changes = self._capture_object_states()
         self.memory.log_episode(EpisodeEntry(
             task_id=task_id,
             task_type="todo",
@@ -209,6 +284,10 @@ class Agent:
             steps=steps_taken,
             success=success,
             error=last_error,
+            non_set_changes=self._non_set_changes,
+            objects_before=objects_before,
+            objects_after=objects_after,
+            object_changes=object_changes,
         ))
 
         duration = round(time.time() - start_time, 1)
@@ -266,6 +345,11 @@ class Agent:
                 if not plan:
                     last_error = "LLM did not produce a plan"
                     break
+                # PLAN hook: filter steps that violate dont-do rules
+                plan = self._filter_plan_by_dont_do(plan)
+                if not plan:
+                    last_error = "All plan steps rejected by dont-do rules"
+                    break
                 conversation += f"\n[Plan] {len(plan)} steps generated"
             else:
                 # Retry: replan with what we've learned
@@ -274,6 +358,7 @@ class Agent:
                 )
                 if not plan:
                     break
+                plan = self._filter_plan_by_dont_do(plan)
 
             # Phase 3: Execute
             for step in plan:
@@ -296,16 +381,40 @@ class Agent:
                     tool_calls = self._parse_tool_calls(resp.content)
                     for tc in tool_calls:
                         tool_def = self.registry.get(tc["tool"])
-                        if tool_def:
-                            result = await self.executor.execute(
-                                tool_def, tc["capability"], tc.get("params", {})
-                            )
-                            tools_used.append(f"{tc['tool']}.{tc['capability']}")
-                            steps_taken += 1
-                            conversation += (
-                                f"\n[Result from {tc['tool']}.{tc['capability']}]: "
-                                f"{str(result)[:500]}"
-                            )
+                        if not tool_def:
+                            continue
+                        # PRE_ACTION dont-do check
+                        obj_type = tool_def.objects[0] if tool_def.objects else "unknown"
+                        verdict, msg = self._check_dont_do(HookPoint.PRE_ACTION, {
+                            "object": obj_type,
+                            "operation": tc["capability"],
+                            "tool": tc["tool"],
+                            "params": tc.get("params", {}),
+                        })
+                        if verdict == Verdict.REJECT:
+                            conversation += f"\n[Blocked] {msg}"
+                            continue
+                        elif verdict == Verdict.WARN:
+                            conversation += f"\n[Warning] {msg}"
+
+                        result = await self.executor.execute(
+                            tool_def, tc["capability"], tc.get("params", {})
+                        )
+                        tools_used.append(f"{tc['tool']}.{tc['capability']}")
+                        steps_taken += 1
+                        result_str = str(result)[:500]
+                        conversation += (
+                            f"\n[Result from {tc['tool']}.{tc['capability']}]: "
+                            f"{result_str}"
+                        )
+
+                        # POST_ACTION dont-do check
+                        self._check_dont_do(HookPoint.POST_ACTION, {
+                            "object": obj_type,
+                            "operation": tc["capability"],
+                            "tool": tc["tool"],
+                            "result": result_str,
+                        })
                 except InterruptSignal:
                     raise
                 except Exception as e:
@@ -320,10 +429,15 @@ class Agent:
 
         # Record episode
         success = not last_error
+        objects_before, objects_after, object_changes = self._capture_object_states()
         self.memory.log_episode(EpisodeEntry(
             task_id=task_id, task_type="goal", task_summary=goal[:200],
             tools_used=list(set(tools_used)), steps=steps_taken,
             success=success, error=last_error,
+            non_set_changes=self._non_set_changes,
+            objects_before=objects_before,
+            objects_after=objects_after,
+            object_changes=object_changes,
         ))
 
         # Consolidation trigger
@@ -344,6 +458,27 @@ class Agent:
             "tools_used": list(set(tools_used)),
             "duration_seconds": duration, "error": last_error,
         }
+
+    def _filter_plan_by_dont_do(self, plan: list[dict]) -> list[dict]:
+        """Filter plan steps through PLAN hook dont-do rules."""
+        filtered = []
+        for step in plan:
+            action = step.get("action", str(step))
+            tool = step.get("tool", "")
+            obj = step.get("object", "unknown")
+            verdict, msg = self._check_dont_do(HookPoint.PLAN, {
+                "object": obj,
+                "operation": action[:100],
+                "tool": tool,
+            })
+            if verdict == Verdict.REJECT:
+                logger.warning("plan_step_rejected", step=action[:100], reason=msg)
+                continue
+            elif verdict == Verdict.WARN:
+                logger.warning("plan_step_warned", step=action[:100], reason=msg)
+                step["_warning"] = msg
+            filtered.append(step)
+        return filtered
 
     async def _observe(self, goal: str, conversation: str) -> str:
         """Phase 1: Observe current state relevant to the goal."""

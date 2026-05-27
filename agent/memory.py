@@ -28,8 +28,11 @@ class EpisodeEntry:
     steps: int = 0
     success: bool = False
     error: str = ""
-    non_set_changes: list[str] = field(default_factory=list)
+    non_set_changes: list[dict] = field(default_factory=list)
     timestamp: str = ""
+    objects_before: dict = field(default_factory=dict)
+    objects_after: dict = field(default_factory=dict)
+    object_changes: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -74,6 +77,9 @@ class MemoryStore:
                 success INTEGER DEFAULT 0,
                 error TEXT DEFAULT '',
                 non_set_changes TEXT DEFAULT '[]',
+                objects_before TEXT DEFAULT '{}',
+                objects_after TEXT DEFAULT '{}',
+                object_changes TEXT DEFAULT '[]',
                 consolidated INTEGER DEFAULT 0
             );
 
@@ -92,6 +98,22 @@ class MemoryStore:
                 USING fts5(content, content=semantic, content_rowid=rowid);
         """)
         self.conn.commit()
+        self._migrate_schema()
+
+    def _migrate_schema(self):
+        """Incremental schema migration for existing databases."""
+        migrations = [
+            "ALTER TABLE episodic ADD COLUMN objects_before TEXT DEFAULT '{}'",
+            "ALTER TABLE episodic ADD COLUMN objects_after TEXT DEFAULT '{}'",
+            "ALTER TABLE episodic ADD COLUMN object_changes TEXT DEFAULT '[]'",
+        ]
+        for sql in migrations:
+            try:
+                self.conn.execute(sql)
+                self.conn.commit()
+                logger.info("schema_migration", sql=sql[:60])
+            except sqlite3.OperationalError:
+                pass
 
     def close(self):
         self.conn.close()
@@ -103,12 +125,16 @@ class MemoryStore:
         self.conn.execute(
             """INSERT OR REPLACE INTO episodic
                (id, timestamp, task_type, task_summary, tools_used,
-                steps, success, error, non_set_changes, consolidated)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
+                steps, success, error, non_set_changes,
+                objects_before, objects_after, object_changes, consolidated)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)""",
             (entry.task_id, entry.timestamp, entry.task_type,
              entry.task_summary, json.dumps(entry.tools_used),
              entry.steps, int(entry.success), entry.error,
-             json.dumps(entry.non_set_changes)),
+             json.dumps(entry.non_set_changes),
+             json.dumps(entry.objects_before, ensure_ascii=False),
+             json.dumps(entry.objects_after, ensure_ascii=False),
+             json.dumps(entry.object_changes, ensure_ascii=False)),
         )
         self.conn.commit()
         logger.info("episode_logged", task_id=entry.task_id)
@@ -145,6 +171,51 @@ class MemoryStore:
             "success_rate": round(row["success_count"] / total * 100, 1) if total else 0,
             "avg_steps": round(row["avg_steps"], 1) if row["avg_steps"] else 0,
         }
+
+    def get_object_history(self, uri: str, limit: int = 10) -> list[dict]:
+        """Query state change history for a specific object across episodes."""
+        rows = self.conn.execute(
+            """SELECT id, timestamp, task_type, task_summary, success,
+                      objects_before, objects_after, object_changes
+               FROM episodic
+               WHERE objects_before LIKE ? OR objects_after LIKE ?
+                  OR object_changes LIKE ?
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (f"%{uri}%", f"%{uri}%", f"%{uri}%", limit),
+        ).fetchall()
+        history = []
+        for row in rows:
+            changes = json.loads(row["object_changes"] or "[]")
+            obj_changes = [c for c in changes if c.get("uri") == uri]
+            history.append({
+                "task_id": row["id"],
+                "timestamp": row["timestamp"],
+                "task_type": row["task_type"],
+                "task_summary": row["task_summary"],
+                "success": bool(row["success"]),
+                "changes": obj_changes,
+            })
+        return history
+
+    def get_non_set_history(self, limit: int = 20) -> list[dict]:
+        """Query all dont-do rule change history."""
+        rows = self.conn.execute(
+            """SELECT id, timestamp, task_type, non_set_changes
+               FROM episodic
+               WHERE non_set_changes != '[]' AND non_set_changes != 'null'
+               ORDER BY timestamp DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        history = []
+        for row in rows:
+            changes = json.loads(row["non_set_changes"] or "[]")
+            for change in changes:
+                change["task_id"] = row["id"]
+                change["task_type"] = row["task_type"]
+                history.append(change)
+        return history
 
     # ——— Semantic ———
 
@@ -233,7 +304,17 @@ class MemoryStore:
             error=row["error"],
             non_set_changes=json.loads(row["non_set_changes"]),
             timestamp=row["timestamp"],
+            objects_before=self._safe_json_load(row["objects_before"], {}),
+            objects_after=self._safe_json_load(row["objects_after"], {}),
+            object_changes=self._safe_json_load(row["object_changes"], []),
         )
+
+    @staticmethod
+    def _safe_json_load(value, default):
+        try:
+            return json.loads(value) if value else default
+        except (json.JSONDecodeError, TypeError):
+            return default
 
     def _row_to_semantic(self, row) -> SemanticEntry:
         return SemanticEntry(
