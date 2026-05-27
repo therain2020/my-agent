@@ -1,6 +1,6 @@
 # therain2020-agent
 
-pip install therain2020-agent。带上你自己的 API key。带上你自己找来的工具。完了。
+把 Claude Code、Cursor、Gemini 里的 skill 和 MCP 工具，一键转成你自己的 agent 工具。带上自己的 API key 跑。
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -13,9 +13,11 @@ pip install therain2020-agent。带上你自己的 API key。带上你自己找�
 
 ## 为什么做这个
 
-我在 Claude Code、Codex、Gemini 之间来回切。每个上面都有我想要的工具，每个上面都有我攒的技能。换一个就得重来。
+我同时在用 Claude Code、Cursor 和 Gemini。每个上面都攒了一堆 skill 和 MCP 工具，但它们是锁死的——Claude Code 的工具不能给 Cursor 用，Gemini 的配置也没法迁到别处。
 
-这个项目把它们粘在一起。你给它一个 Claude Code skill、一个 MCP server、或者一个 Cursor rule，它吃掉。然后用你自己付钱的 LLM 跑，而不是别人替你做决定的那个。
+这个项目就是解决这件事：扫描你已经装过的 AI agent，把它们的 skill、plugin、MCP 全部认出来，一键转成统一的 tool 格式。然后你用谁的 API key 跑都行。
+
+不只适配御三家。国产的、任何 OpenAI 兼容接口的，一样接。
 
 ---
 
@@ -24,63 +26,82 @@ pip install therain2020-agent。带上你自己的 API key。带上你自己找�
 ```bash
 pip install therain2020-agent
 
+# 接你自己的 LLM
 therain2020-agent provider add qwen --adapter custom \
   --api-key-env ALI_TONGYI_KEY \
   --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
   --model qwen-plus
 
+# 扫描本机已装过的 agent，自动发现可迁移的工具
 therain2020-agent add discover
+
+# 一键迁移 Claude Code 的全部 skill 和 MCP
 therain2020-agent add from-claude-code
+
+# 跑
 therain2020-agent run "修一下 login 那个 bug"
 ```
 
 ---
 
-## 做什么的
+## 三个核心能力
 
-四件事：
+### add — 扫描、适配、导入
 
-**add** — 从其他 AI agent 拉工具和规则。Claude Code skill、MCP server、Cursor rule、普通 CLAUDE.md 文件。全部转成 agent 能用的格式。
+做了两件事。
 
-**publish** — 把你自己的工具打包，让别人能用。一条命令打 .tar.gz，另一条推到 GitHub Releases。
+**第一，适配了市面上主流 AI agent 的扩展格式。** 目前内置支持的厂商：
 
-**run** — 执行任务。它会自己判断你给的是待办步骤还是需要拆解的目标，两种都能处理。
+- Claude Code（skill、plugin、settings.json、CLAUDE.md）
+- Cursor（rules、mcp.json）
+- Gemini CLI（extension、config.json）
+- Codex CLI（plugin、config.yaml）
+- MCP 协议（stdio、SSE、Streamable HTTP）
 
-**provider** — 管理你用的是哪个 LLM。Anthropic、OpenAI、DeepSeek、或者任何 OpenAI 兼容的接口。随时切换。
+你本机装过哪些，`add discover` 自动扫描出来。`add from-claude-code` 一键全迁。`add skill <path>` 单独导入某个。
+
+**第二，它提供了一个开放的、可扩展的工具接口。** 所有导入的工具统一转成 `tool.md` 格式。你要自己写工具也行，目录下放一个 `tool.md` 配一个 Python 脚本就行。导入和导出是对称的——你可以用 `add` 吃外面的，也可以用 `publish` 把你做的工具打包给别人用。
+
+### publish — 打包、分发
+
+把你写的工具打成标准的 .tar.gz 包，推到 GitHub Releases，别人就能装了。一条 build，一条 push。
+
+### provider — 用自己的模型
+
+你付钱的模型，你做主。Anthropic、OpenAI、DeepSeek、通义千问、任何 OpenAI 兼容接口都行。Provider 挂了自动切备用。嫌贵可以开省钱模式（ondemand），简单任务用小模型，复杂任务自动升到强的。
 
 ---
 
 ## 命令
 
 ```bash
-# Provider
+# 模型接入
 therain2020-agent provider add <name> --adapter anthropic|openai|deepseek|custom ...
 therain2020-agent provider list
 therain2020-agent provider test <name>
-therain2020-agent provider remove <name>
 
-# Add（重点）
+# 工具导入（核心）
 therain2020-agent add discover
 therain2020-agent add search <keyword>
 therain2020-agent add from-claude-code
-therain2020-agent add from-codex
-therain2020-agent add from-gemini
 therain2020-agent add from-cursor
+therain2020-agent add from-gemini
+therain2020-agent add from-codex
 therain2020-agent add skill <path>
 therain2020-agent add mcp <command>
 therain2020-agent add list
 therain2020-agent add remove <name>
 
-# Publish
+# 工具发布
 therain2020-agent publish init <name>
 therain2020-agent publish build
 therain2020-agent publish verify
 
-# Run
-therain2020-agent run "task"
-therain2020-agent run "task" --mode goal
+# 执行
+therain2020-agent run "任务描述"
+therain2020-agent run "目标描述" --mode goal
 
-# Info
+# 查询
 therain2020-agent info tools
 therain2020-agent info dont-do
 therain2020-agent info config
@@ -88,24 +109,27 @@ therain2020-agent info config
 
 ---
 
-## 吃什么
+## 吃的格式
 
-| 来源 | 吃什么 | 变成什么 |
+| 来源 | 能吃什么 | 转成什么 |
 |---|---|---|
 | Claude Code | SKILL.md, .claude-plugin/, settings.json, CLAUDE.md | tool.md, role.md, dont-do 规则 |
-| Codex CLI | config.yaml, plugins/ | tool.md (MCP) |
-| Gemini CLI | config.json, extensions/ | tool.md (MCP) |
 | Cursor | .cursor/rules/, mcp.json | tool.md, 行为规则 |
-| MCP Server | stdio, SSE, Streamable HTTP | tool.md (runtime=mcp) |
+| Gemini CLI | config.json, extensions/ | tool.md (MCP) |
+| Codex CLI | config.yaml, plugins/ | tool.md (MCP) |
+| MCP 协议 | stdio / SSE / Streamable HTTP | tool.md (runtime=mcp) |
 | Aider | CONVENTIONS.md | 行为规则 |
+| 自定义 | 你自己写的 tool.md + Python 脚本 | 原生支持 |
 
 ---
 
-## 里面有什么
+## 里面
 
-它不只是一个 prompt 包装器。里面有一个基于 SQLite 的记忆系统，记住你用什么工具；一个非集引擎，真的会阻止危险操作而不是客气地请求；一个凭据守护，保证 API key 不出现在 LLM 视线里；还有一个上下文管理器，防止长对话炸掉 token 窗口。
+不只是一个 prompt 包装器。
 
-如果你关心设计，[agent-design/temp/](../agent-design/temp/) 里有完整的架构讨论。20 个话题，80 多个方案变体，119 条 OS 类比映射。每个组件都对应 Linux 内核的一个概念。
+记忆系统基于 SQLite，会记住你用什么工具，下次自动加载。非集引擎真的会拦截危险操作，不是在 prompt 里请求。凭据守护保证 API key 不出现在 LLM 视野里。上下文管理防止长对话撑爆 token 窗口。
+
+设计文档在 [agent-design/temp/](../agent-design/temp/)。20 个话题，80 多个方案，119 条 OS 类比映射。每个组件都对应 Linux 内核的一个概念。
 
 ---
 
