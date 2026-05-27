@@ -77,6 +77,16 @@ ruff check agent/ tests/
 python -m build
 ```
 
+## Network
+
+此环境联网需代理。代理地址从系统环境变量 `net_proxy` 读取。
+
+```bash
+# 使用方式。$env:net_proxy 值类似 http://127.0.0.1:7890
+curl --proxy $net_proxy ...
+pip install --proxy $net_proxy ...
+```
+
 ## Release Flow
 
 ```
@@ -90,3 +100,29 @@ python -m build
 ```
 
 Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远一致。不需要手动打 tag。
+
+### Release Verification
+
+每次发布后验证三步：
+
+```bash
+# 1. 确认 GitHub Actions
+gh run list -w release.yml --limit 1
+
+# 2. 确认 PyPI 版本（走代理）
+curl -s --proxy $env:net_proxy \
+  "https://pypi.org/pypi/therain2020-agent/json" \
+  | python -c "import sys,json; d=json.load(sys.stdin); print(d['info']['version'])"
+
+# 3. 干净环境安装测试（走代理）
+python -m venv /tmp/test-pypi
+/tmp/test-pypi/Scripts/pip install --proxy $env:net_proxy \
+  therain2020-agent==<version>
+/tmp/test-pypi/Scripts/python -c "import agent; print(agent.__version__)"
+rm -rf /tmp/test-pypi
+```
+
+## 行为规则
+
+- 网络操作走 `$env:net_proxy` 代理（由系统环境变量配置），不要再问
+- 发布后自动执行三步验证，不要再问
