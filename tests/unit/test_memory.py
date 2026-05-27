@@ -162,3 +162,138 @@ class TestEpisodicMemoryWrapper:
         finally:
             import shutil
             shutil.rmtree(d, ignore_errors=True)
+
+
+class TestObjectStateMemory:
+    """Tests for Phase 1: object state tracking."""
+
+    def test_episode_entry_defaults(self):
+        entry = EpisodeEntry(task_id="t-1", task_type="todo", task_summary="x")
+        assert entry.objects_before == {}
+        assert entry.objects_after == {}
+        assert entry.object_changes == []
+        assert entry.non_set_changes == []
+
+    def test_log_with_object_states(self):
+        d = tempfile.mkdtemp()
+        try:
+            store = MemoryStore(db_path=f"{d}/test.db")
+            store.log_episode(EpisodeEntry(
+                task_id="t-os-1", task_type="goal",
+                task_summary="Modified file",
+                tools_used=["file-system.write_file"],
+                steps=2, success=True,
+                objects_before={"file://main.py": {"size": 100}},
+                objects_after={"file://main.py": {"size": 200}},
+                object_changes=[
+                    {"uri": "file://main.py", "field": "size",
+                     "before": 100, "after": 200},
+                ],
+            ))
+            recent = store.get_recent(1)
+            assert len(recent) == 1
+            entry = recent[0]
+            assert entry.objects_before == {"file://main.py": {"size": 100}}
+            assert entry.objects_after == {"file://main.py": {"size": 200}}
+            assert len(entry.object_changes) == 1
+            store.close()
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_get_object_history(self):
+        d = tempfile.mkdtemp()
+        try:
+            store = MemoryStore(db_path=f"{d}/test.db")
+            store.log_episode(EpisodeEntry(
+                task_id="t-oh-1", task_type="todo",
+                task_summary="Edit main.py",
+                object_changes=[
+                    {"uri": "file://main.py", "field": "size",
+                     "before": 100, "after": 150},
+                ],
+            ))
+            store.log_episode(EpisodeEntry(
+                task_id="t-oh-2", task_type="todo",
+                task_summary="Edit config.yaml",
+                object_changes=[
+                    {"uri": "file://config.yaml", "field": "size",
+                     "before": 50, "after": 80},
+                ],
+            ))
+            history = store.get_object_history("file://main.py")
+            assert len(history) == 1
+            assert history[0]["task_id"] == "t-oh-1"
+            store.close()
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_get_non_set_history(self):
+        d = tempfile.mkdtemp()
+        try:
+            store = MemoryStore(db_path=f"{d}/test.db")
+            store.log_episode(EpisodeEntry(
+                task_id="t-ns-1", task_type="goal",
+                task_summary="Task with rule changes",
+                non_set_changes=[
+                    {"action": "add", "rule_id": "corr-001",
+                     "reason": "User correction", "context": {"object": "file"}},
+                ],
+            ))
+            store.log_episode(EpisodeEntry(
+                task_id="t-ns-2", task_type="todo",
+                task_summary="Plain task",
+                non_set_changes=[],
+            ))
+            history = store.get_non_set_history()
+            assert len(history) == 1
+            assert history[0]["action"] == "add"
+            assert history[0]["task_id"] == "t-ns-1"
+            store.close()
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_schema_migration_adds_columns(self):
+        """Verify _migrate_schema adds missing columns to existing DB."""
+        import sqlite3
+        d = tempfile.mkdtemp()
+        try:
+            db_path = f"{d}/legacy.db"
+            # Simulate old schema without object columns
+            conn = sqlite3.connect(db_path)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS episodic (
+                    id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    task_type TEXT NOT NULL,
+                    task_summary TEXT NOT NULL,
+                    tools_used TEXT DEFAULT '[]',
+                    steps INTEGER DEFAULT 0,
+                    success INTEGER DEFAULT 0,
+                    error TEXT DEFAULT '',
+                    non_set_changes TEXT DEFAULT '[]',
+                    consolidated INTEGER DEFAULT 0
+                );
+            """)
+            conn.commit()
+            conn.close()
+
+            # Now open with MemoryStore — migration should add columns
+            store = MemoryStore(db_path=db_path)
+            # Should work without error
+            store.log_episode(EpisodeEntry(
+                task_id="t-mig-1", task_type="todo",
+                task_summary="After migration",
+                objects_before={"f": {"v": 1}},
+                objects_after={"f": {"v": 2}},
+            ))
+            recent = store.get_recent(1)
+            assert len(recent) == 1
+            assert recent[0].objects_before == {"f": {"v": 1}}
+            store.close()
+        finally:
+            import shutil
+            shutil.rmtree(d, ignore_errors=True)
