@@ -12,8 +12,6 @@ from .config import load_config
 from .consolidation import ConsolidationDaemon
 from .correction import (
     Correction,
-    CorrectionSource,
-    Severity,
     correction_to_rule,
     parse_correction_file,
     persist_dont_do_rule,

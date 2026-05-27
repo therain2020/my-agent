@@ -8,7 +8,7 @@ When a user points out a problem during execution, the agent:
 """
 
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
