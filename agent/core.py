@@ -80,7 +80,7 @@ class Agent:
         self.event_store = EventStore(self.memory.store.conn)
         self.consolidation = ConsolidationDaemon(
             store=self.memory.store,
-            provider=self._provider
+            provider=None
         )
         self.interrupt = InterruptHandler()
         self.output_format = OutputFormatManager()
@@ -117,6 +117,9 @@ class Agent:
             db_path=self.config.get("skills", {}).get("path", "data/skills.db")
         )
         self.skill_lifecycle = SkillLifecycle(self.skill_repo)
+
+        # Progress callback for REPL streaming UX
+        self._progress_callback: Any = None
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""
@@ -405,6 +408,21 @@ TODO: {task}
             "total_count": len(results),
         }
 
+    def set_progress_callback(self, callback) -> None:
+        """Set a progress callback for REPL streaming UX.
+
+        Callback receives dicts: {"type": "thinking"|"tool_start"|"tool_result"|"done", ...}
+        """
+        self._progress_callback = callback
+
+    def _emit_progress(self, event: dict) -> None:
+        """Emit a progress event if callback is set."""
+        if self._progress_callback:
+            try:
+                self._progress_callback(event)
+            except Exception:
+                pass
+
     def _get_provider(self) -> LLMProvider:
         """Get or raise if no provider configured."""
         if self._provider is None:
@@ -521,6 +539,7 @@ TODO: {task}
             ))
 
             # Call LLM
+            self._emit_progress({"type": "thinking", "iteration": iteration + 1})
             provider = self._get_provider()
             try:
                 response = await retry(
@@ -580,6 +599,11 @@ TODO: {task}
 
                 try:
                     # Phase 4: execute with verification (十-A)
+                    self._emit_progress({
+                        "type": "tool_start",
+                        "tool": tc["tool"],
+                        "capability": tc["capability"],
+                    })
                     result, verify_result = await self.executor.execute_and_verify(
                         tool_def, tc["capability"], tc.get("params", {})
                     )
@@ -587,6 +611,12 @@ TODO: {task}
                     steps_taken += 1
 
                     result_str = str(result)[:2000]
+                    self._emit_progress({
+                        "type": "tool_result",
+                        "tool": tc["tool"],
+                        "capability": tc["capability"],
+                        "ok": verify_result.verified if verify_result else True,
+                    })
                     conversation += f"\n[Result from {tc['tool']}.{tc['capability']}]: {result_str}"
 
                     # Check verification
