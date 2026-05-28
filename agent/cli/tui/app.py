@@ -1,19 +1,12 @@
-"""Textual TUI — Claude Code-style terminal interface.
+"""Textual TUI — modeled on Claude Code's terminal interface.
 
-Layout (CSS grid):
-  ┌─ Header ──────────────────────────┐
-  │  therain2020-agent  model:xxx      │
-  ├─ Transcript (scrollable) ─────────┤
-  │  > user message                    │
-  │  ┌ Thinking ──────────────────┐    │
-  │  │ reasoning...               │    │
-  │  └────────────────────────────┘    │
-  │  → tool.cap ✓                     │
-  │  Response markdown                 │
-  ├─ Bottom ──────────────────────────┤
-  │  > _                               │  ← TextArea input
-  │  model | Ctrl+T:think | /help      │  ← status line
-  └────────────────────────────────────┘
+Key patterns replicated from Claude Code's Ink/React TUI:
+- Simple `> ` prompt with inline input, no heavy box borders
+- Subtle dimmed spinner during thinking
+- Thinking blocks: dim border, collapsible (Ctrl+T)
+- Tool calls: compact single line with status
+- Response: rendered as Markdown, natural flow
+- Status bar: model + hints, minimal
 """
 
 from __future__ import annotations
@@ -32,86 +25,107 @@ from agent.core import Agent
 from agent.streaming import StreamEventType
 from agent.tools.adapters.browser_harness import BrowserHarnessAdapter
 
+# ── widgets ──
 
-class ThinkingBlock(Static):
-    """Collapsible thinking block. Ctrl+T to toggle."""
+
+class ThinkBlock(Static):
+    """Collapsible thinking block. Like Claude Code's AssistantThinkingMessage."""
 
     expanded = reactive(True)
 
     def __init__(self):
         super().__init__("", classes="think")
-        self._text = ""
+        self._buf = ""
 
-    def feed(self, chunk: str) -> None:
-        self._text += chunk
-        self._redraw()
+    def feed(self, s: str) -> None:
+        self._buf += s
+        self._draw()
 
-    def toggle(self) -> None:
+    def flip(self) -> None:
         self.expanded = not self.expanded
-        self._redraw()
+        self._draw()
 
-    def _redraw(self) -> None:
+    def _draw(self) -> None:
+        if not self._buf:
+            return
         if self.expanded:
-            w = self.size.width - 4 if self.size.width > 10 else 76
-            box_w = min(w, 80)
-            lines = ["┌─ Thinking " + "─" * (box_w - 12) + "┐"]
-            for line in self._text.split("\n")[-20:]:
-                line = line[:box_w - 2]
-                lines.append(f"│ {line}".ljust(box_w + 1) + "│")
-            lines.append("└" + "─" * (box_w - 1) + "┘")
-            self.update("\n".join(lines))
+            self.update(f"[dim]● Thinking[/]\n[dim]{self._buf[-2000:]}[/]")
         else:
-            n = len(self._text)
-            self.update(f"  · Thinking... ({n} chars)  [dim]Ctrl+T to expand[/]")
+            self.update(f"[dim]● Thinking... ({len(self._buf)} chars)[/]")
 
 
-class ResponseBlock(Markdown):
-    """A markdown response block with raw text tracking."""
+class RespBlock(Markdown):
+    """Streaming response — incremental markdown rendering."""
 
-    def __init__(self, text: str = ""):
-        super().__init__(text or " ", classes="resp")
-        self.raw_text = text
+    def __init__(self):
+        super().__init__("", classes="resp")
+        self.raw = ""
+
+    def feed(self, s: str) -> None:
+        self.raw += s
+        try:
+            self.update(self.raw)
+        except Exception:
+            pass
+
+
+class ToolLine(Static):
+    """Compact tool call indicator."""
+
+    def __init__(self, tool: str, cap: str):
+        super().__init__(f"  [dim]⏳ {tool}.{cap}[/]", classes="tool")
+        self._tool = tool
+        self._cap = cap
+
+    def mark(self, ok: bool = True) -> None:
+        s = "[green]✓[/]" if ok else "[yellow]⚠[/]"
+        self.update(f"  {s} [dim]{self._tool}.{self._cap}[/]")
+
+
+# ── app ──
 
 
 class AgentTui(App):
-    """Textual TUI for therain2020-agent."""
+    """Claude Code-style terminal interface for therain2020-agent."""
 
     CSS = """
     #transcript {
+        padding: 0 2 1 2;
         overflow-y: auto;
-        padding: 1 2;
     }
     .think {
-        color: grey;
-        margin: 1 0;
+        margin: 1 2;
         height: auto;
     }
     .tool {
-        color: grey;
+        margin: 0 2;
         height: 1;
-        padding: 0 2;
     }
     .resp {
         margin: 1 0;
+        height: auto;
     }
     #bottom {
         dock: bottom;
         height: auto;
-        max-height: 30%;
+        max-height: 35%;
         background: $surface;
         border-top: solid $primary-darken-3;
-    }
-    #prompt {
-        height: auto;
-        min-height: 3;
-        max-height: 12;
         padding: 0 1;
-        border: none;
     }
     #status {
         height: 1;
-        padding: 0 1;
         color: $text-disabled;
+    }
+    #prompt {
+        height: auto;
+        min-height: 1;
+        max-height: 8;
+        border: none;
+        padding: 0;
+    }
+    TextArea:focus {
+        border: none;
     }
     """
 
@@ -119,24 +133,25 @@ class AgentTui(App):
         Binding("ctrl+t", "toggle_thinking", "Think"),
         Binding("ctrl+c", "quit", "Exit"),
         Binding("enter", "submit", "Send", priority=True),
-        Binding("ctrl+enter", "newline", "Newline", show=False),
-        Binding("up", "history_up", "Hist↑", show=False, priority=True),
-        Binding("down", "history_down", "Hist↓", show=False, priority=True),
+        Binding("ctrl+enter", "newline", "NL", show=False),
+        Binding("up", "history_up", "↑", show=False, priority=True),
+        Binding("down", "history_down", "↓", show=False, priority=True),
     ]
 
     def __init__(self, provider=None):
         super().__init__()
-        self._provider_arg = provider
         self._agent: Agent | None = None
-        self._history: list[str] = []
-        self._hpos: int = -1
-        self._think: ThinkingBlock | None = None
-        self._resp: ResponseBlock | None = None
-        self._tools: list[Static] = []
+        self._hist: list[str] = []
+        self._hp: int = -1
         self._busy = False
-        self._auto_scroll = True
-        self._model = "none"
-        self._conversation: str = ""  # accumulated context across turns
+        self._scroll = True
+        self._model = "?"
+        self._ctx = ""          # conversation context
+        self._think: ThinkBlock | None = None
+        self._resp: RespBlock | None = None
+        self._tools: list[ToolLine] = []
+
+    # ── compose / mount ──
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -147,8 +162,6 @@ class AgentTui(App):
 
     def on_mount(self) -> None:
         self.query_one(Header).tall = False
-
-        # Dirs
         d = Path.home() / ".therain2020-agent"
         for sub in ["memory", "tools", "tools/.generated", "dont-do"]:
             (d / sub).mkdir(parents=True, exist_ok=True)
@@ -156,126 +169,116 @@ class AgentTui(App):
         self._agent = Agent()
         self._agent.setup()
 
-        from agent.cli.autodetect import detect_from_env
-        prov, cfg, src = detect_from_env()
-        if prov:
-            self._agent.set_provider(prov, cfg)
-            self._model = cfg.model if cfg else "?"
-        else:
-            self._model = "none"
-
         try:
             BrowserHarnessAdapter(self._agent.registry).register()
         except Exception:
             pass
 
+        from agent.cli.autodetect import detect_from_env
+        p, c, src = detect_from_env()
+        if p:
+            self._agent.set_provider(p, c)
+            self._model = c.model if c else "?"
         self.title = "therain2020-agent"
-        self.sub_title = f"v0.7.1  [{self._model}]"
-
-        self._set_status(f"[dim]{self._model}[/] | Ctrl+T:think | /help | Ctrl+C:exit")
-
-        self._echo(f"[bold]therain2020-agent[/] v0.7.1 — {self._model} ({src})")
-        self._echo("[dim]Type a task or /help.[/]")
+        self.sub_title = f"[{self._model}]"
+        self._status(f"{self._model}  |  Ctrl+T think  |  /help  |  Ctrl+C exit")
+        self._say(f"[bold]therain2020-agent[/] — {self._model} [dim]({src})[/]")
+        self._say("[dim]Ask anything. /help for commands.[/]")
         self.query_one("#prompt", TextArea).focus()
 
-    # ── transcript helpers ──
+    # ── transcript ──
 
-    def _echo(self, text: str) -> None:
+    def _say(self, text: str) -> None:
         w = Static(text)
         self.query_one("#transcript", VerticalScroll).mount(w)
-        if self._auto_scroll:
+        if self._scroll:
             w.scroll_visible()
 
-    def _mount(self, widget) -> None:
-        self.query_one("#transcript", VerticalScroll).mount(widget)
-        if self._auto_scroll:
-            widget.scroll_visible()
+    def _put(self, w) -> None:
+        self.query_one("#transcript", VerticalScroll).mount(w)
+        if self._scroll:
+            w.scroll_visible()
 
-    def _set_status(self, text: str) -> None:
+    def _status(self, text: str) -> None:
         self.query_one("#status", Static).update(text)
 
-    # ── scroll tracking ──
-
-    def on_vertical_scroll_scrolled(self, event) -> None:
+    def on_vertical_scroll_scrolled(self, _) -> None:
         vs = self.query_one("#transcript", VerticalScroll)
-        at_bottom = vs.scroll_offset.y >= (vs.max_scroll_y - 3) if vs.max_scroll_y > 0 else True
-        self._auto_scroll = at_bottom
+        bottom = vs.scroll_offset.y >= (vs.max_scroll_y - 3) if vs.max_scroll_y > 0 else True
+        self._scroll = bottom
 
     # ── input ──
 
     def action_newline(self) -> None:
-        """Insert a newline (Ctrl+Enter)."""
-        ta = self.query_one("#prompt", TextArea)
-        ta.insert("\n")
+        self.query_one("#prompt", TextArea).insert("\n")
 
     def action_submit(self) -> None:
         ta = self.query_one("#prompt", TextArea)
-        text = ta.text.strip()
-        if not text or self._busy:
+        t = ta.text.strip()
+        if not t or self._busy:
             return
         ta.clear()
-
-        if not self._history or self._history[-1] != text:
-            self._history.append(text)
-        self._hpos = len(self._history)
-
-        if text.startswith("/"):
-            self._slash(text)
+        if not self._hist or self._hist[-1] != t:
+            self._hist.append(t)
+        self._hp = len(self._hist)
+        if t.startswith("/"):
+            self._cmd(t)
             return
-
-        self._echo(f"\n[bold]> {text}[/]")
-        self._run(text)
+        self._say(f"\n[bold]> {t}[/]")
+        self._run(t)
 
     def action_history_up(self) -> None:
-        if not self._history:
+        if not self._hist:
             return
         ta = self.query_one("#prompt", TextArea)
-        if self._hpos == len(self._history):
-            self._hpos = len(self._history) - 1
-        elif self._hpos > 0:
-            self._hpos -= 1
-        ta.text = self._history[self._hpos]
+        if self._hp == len(self._hist):
+            self._hp = len(self._hist) - 1
+        elif self._hp > 0:
+            self._hp -= 1
+        ta.text = self._hist[self._hp]
 
     def action_history_down(self) -> None:
         ta = self.query_one("#prompt", TextArea)
-        if self._hpos < len(self._history) - 1:
-            self._hpos += 1
-            ta.text = self._history[self._hpos]
+        if self._hp < len(self._hist) - 1:
+            self._hp += 1
+            ta.text = self._hist[self._hp]
         else:
-            self._hpos = len(self._history)
+            self._hp = len(self._hist)
             ta.text = ""
 
-    # ── slash ──
+    def action_toggle_thinking(self) -> None:
+        if self._think:
+            self._think.flip()
 
-    def _slash(self, text: str) -> None:
-        parts = text.strip().lower().split()
-        cmd = parts[0]
-        if cmd == "/help":
-            self._echo("[dim]/help /clear /tools /skills /think /exit[/]")
-        elif cmd == "/clear":
+    # ── commands ──
+
+    def _cmd(self, text: str) -> None:
+        p = text.strip().lower().split()
+        c = p[0]
+        if c == "/help":
+            self._say("[dim]/help /clear /tools /skills /think /exit[/]")
+        elif c == "/clear":
             self.query_one("#transcript", VerticalScroll).remove_children()
-            self._conversation = ""
-        elif cmd == "/tools":
-            tools = self._agent.registry.list_all()
-            for t in sorted(tools, key=lambda x: x.name):
+            self._ctx = ""
+        elif c == "/tools":
+            for t in sorted(self._agent.registry.list_all(), key=lambda x: x.name):
                 caps = ", ".join(c.name for c in t.capabilities)
-                self._echo(f"  {t.name} [dim]{caps}[/]")
-        elif cmd == "/skills":
+                self._say(f"  [bold]{t.name}[/] [dim]{caps}[/]")
+        elif c == "/skills":
             try:
-                skills = self._agent.skill_repo.get_active(limit=20)
-                for s in skills:
-                    self._echo(f"  {s.name} [dim]×{s.uses} score={s.score}[/]")
+                for s in self._agent.skill_repo.get_active(20):
+                    self._say(f"  {s.name} [dim]×{s.uses} s={s.score}[/]")
             except Exception:
-                self._echo("[dim]Skills unavailable.[/]")
-        elif cmd == "/think":
+                self._say("[dim]unavailable[/]")
+        elif c == "/think":
             if self._think:
-                self._think.toggle()
-        elif cmd == "/exit":
+                self._think.flip()
+        elif c == "/exit":
             self.exit()
         else:
-            self._echo(f"[dim]Unknown: {cmd}. Type /help.[/]")
+            self._say(f"[dim]? {c}[/]")
 
-    # ── task runner ──
+    # ── run ──
 
     @work(thread=False, exclusive=True)
     async def _run(self, task: str) -> None:
@@ -283,80 +286,56 @@ class AgentTui(App):
         self._think = None
         self._resp = None
         self._tools.clear()
-        self._set_status(f"[dim]{self._model}[/] | [yellow]Thinking...[/]")
+        self._status(f"{self._model}  |  [yellow]thinking…[/]")
         t0 = time.time()
 
-        # Inject conversation context from previous turns
-        ctx = ""
-        if self._conversation:
-            ctx = f"\n\nPrevious conversation:\n{self._conversation[-3000:]}"
-        full_task = task + ctx
-
-        # Accumulate this turn
-        self._conversation += f"\nUser: {task}"
+        ctx = f"\n\n[context]\n{self._ctx[-3000:]}" if self._ctx else ""
+        self._ctx += f"\nUser: {task}"
 
         try:
             if self._agent.supports_structured_stream():
-                async for ev in self._agent.run_stream(full_task):
-                    if ev.type == StreamEventType.THINKING:
-                        self._on_think(ev.content)
-                    elif ev.type == StreamEventType.TEXT:
-                        self._conversation += f"\nAssistant: {ev.content[:500]}"
-                        self._on_text(ev.content)
-                    elif ev.type == StreamEventType.TOOL_START:
-                        self._on_tool_start(ev.tool_name, ev.capability)
-                    elif ev.type == StreamEventType.TOOL_RESULT:
-                        self._on_tool_done(ev.tool_name, ev.capability, ev.ok)
-                    elif ev.type == StreamEventType.ERROR:
-                        self._echo(f"[red]Error: {ev.content}[/]")
-                    elif ev.type == StreamEventType.DONE:
-                        dt = round(time.time() - t0, 1)
-                        if ev.success:
-                            self._echo(f"[green][OK][/] {ev.steps} steps in {dt}s")
-                        else:
-                            self._echo(f"[red][FAILED][/] {ev.error_msg}")
+                async for ev in self._agent.run_stream(task + ctx):
+                    t = ev.type
+                    if t == StreamEventType.THINKING:
+                        if self._think is None:
+                            self._think = ThinkBlock()
+                            self._put(self._think)
+                        self._think.feed(ev.content)
+                    elif t == StreamEventType.TEXT:
+                        self._ctx += ev.content[:500]
+                        if self._resp is None:
+                            self._resp = RespBlock()
+                            self._put(self._resp)
+                        self._resp.feed(ev.content)
+                    elif t == StreamEventType.TOOL_START:
+                        tl = ToolLine(ev.tool_name, ev.capability)
+                        self._put(tl)
+                        self._tools.append(tl)
+                    elif t == StreamEventType.TOOL_RESULT:
+                        for tl in reversed(self._tools):
+                            if ev.tool_name in tl._tool and ev.capability in tl._cap:
+                                tl.mark(ev.ok)
+                                break
+                    elif t == StreamEventType.ERROR:
+                        self._say(f"[red]Error: {ev.content}[/]")
+                    elif t == StreamEventType.DONE:
+                        d = round(time.time() - t0, 1)
+                        self._say(
+                            f"[green]✓[/] {ev.steps} steps in {d}s"
+                            if ev.success else
+                            f"[red]✗[/] {ev.error_msg}"
+                        )
             else:
-                self._echo("[dim]  …[/]")
-                r = await self._agent.run(task)
-                dt = round(time.time() - t0, 1)
-                self._echo(f"[green][OK][/] {r['steps']} steps in {dt}s" if r["success"]
-                           else f"[red][FAILED][/] {r.get('error', '')}")
+                r = await self._agent.run(task + ctx)
+                d = round(time.time() - t0, 1)
+                self._say(
+                    f"[green]✓[/] {r['steps']} steps in {d}s"
+                    if r["success"] else
+                    f"[red]✗[/] {r.get('error', '')}"
+                )
         except Exception as e:
-            self._echo(f"[red]Error: {e}[/]")
+            self._say(f"[red]Error: {e}[/]")
         finally:
             self._busy = False
-            self._set_status(f"[dim]{self._model}[/] | Ctrl+T:think | /help | Ctrl+C:exit")
+            self._status(f"{self._model}  |  Ctrl+T think  |  /help  |  Ctrl+C exit")
             self.query_one("#prompt", TextArea).focus()
-
-    def _on_think(self, chunk: str) -> None:
-        if self._think is None:
-            self._think = ThinkingBlock()
-            self._mount(self._think)
-        self._think.feed(chunk)
-
-    def _on_text(self, chunk: str) -> None:
-        if self._resp is None:
-            self._resp = ResponseBlock(chunk)
-            self._mount(self._resp)
-        else:
-            self._resp.raw_text += chunk
-            try:
-                self._resp.update(self._resp.raw_text)
-            except Exception:
-                pass
-
-    def _on_tool_start(self, name: str, cap: str) -> None:
-        w = Static(f"  → {name}.{cap}  ", classes="tool")
-        self._mount(w)
-        self._tools.append(w)
-
-    def _on_tool_done(self, name: str, cap: str, ok: bool) -> None:
-        mark = "[green]✓[/]" if ok else "[yellow]⚠[/]"
-        for w in reversed(self._tools):
-            if name in str(w.renderable) and cap in str(w.renderable):
-                w.update(f"  → {name}.{cap}  {mark}")
-                break
-
-    def action_toggle_thinking(self) -> None:
-        if self._think:
-            self._think.toggle()
