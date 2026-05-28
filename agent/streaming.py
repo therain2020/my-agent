@@ -63,5 +63,5 @@ class StreamEvent:
         return cls(
             type=StreamEventType.DONE,
             success=success, steps=steps, duration=duration,
-            tools_used=tools, error=error,
+            tools_used=tools, error_msg=error,
         )

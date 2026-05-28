@@ -136,6 +136,7 @@ class AgentTui(App):
         self._busy = False
         self._auto_scroll = True
         self._model = "none"
+        self._conversation: str = ""  # accumulated context across turns
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=False)
@@ -253,6 +254,7 @@ class AgentTui(App):
             self._echo("[dim]/help /clear /tools /skills /think /exit[/]")
         elif cmd == "/clear":
             self.query_one("#transcript", VerticalScroll).remove_children()
+            self._conversation = ""
         elif cmd == "/tools":
             tools = self._agent.registry.list_all()
             for t in sorted(tools, key=lambda x: x.name):
@@ -284,12 +286,22 @@ class AgentTui(App):
         self._set_status(f"[dim]{self._model}[/] | [yellow]Thinking...[/]")
         t0 = time.time()
 
+        # Inject conversation context from previous turns
+        ctx = ""
+        if self._conversation:
+            ctx = f"\n\nPrevious conversation:\n{self._conversation[-3000:]}"
+        full_task = task + ctx
+
+        # Accumulate this turn
+        self._conversation += f"\nUser: {task}"
+
         try:
             if self._agent.supports_structured_stream():
-                async for ev in self._agent.run_stream(task):
+                async for ev in self._agent.run_stream(full_task):
                     if ev.type == StreamEventType.THINKING:
                         self._on_think(ev.content)
                     elif ev.type == StreamEventType.TEXT:
+                        self._conversation += f"\nAssistant: {ev.content[:500]}"
                         self._on_text(ev.content)
                     elif ev.type == StreamEventType.TOOL_START:
                         self._on_tool_start(ev.tool_name, ev.capability)
