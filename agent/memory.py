@@ -239,6 +239,48 @@ class MemoryStore:
         self.conn.commit()
         return cur.rowcount
 
+    def log_evolution_event(self, record_id: str, action: str, target: str,
+                            episode_id: str, description: str) -> None:
+        """Record a tool evolution event in semantic memory.
+
+        Stored as a 'tool_evolution' fact for audit trail and pattern mining.
+        """
+        import json
+        entry = SemanticEntry(
+            id=f"evol-{record_id}",
+            type="tool_evolution",
+            content=json.dumps({
+                "action": action,
+                "target": target,
+                "episode_id": episode_id,
+                "description": description,
+            }, ensure_ascii=False),
+            confidence=1.0,
+            source_episodes=[episode_id],
+        )
+        self.upsert_semantic(entry)
+
+    def get_evolution_history(self, tool_name: str | None = None,
+                              limit: int = 20) -> list[dict]:
+        """Query tool evolution history."""
+        if tool_name:
+            rows = self.conn.execute(
+                "SELECT * FROM semantic WHERE type = 'tool_evolution' "
+                "AND content LIKE ? ORDER BY created_at DESC LIMIT ?",
+                (f"%{tool_name}%", limit),
+            ).fetchall()
+        else:
+            rows = self.conn.execute(
+                "SELECT * FROM semantic WHERE type = 'tool_evolution' "
+                "ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        import json
+        return [
+            {**json.loads(r["content"]), "record_id": r["id"], "timestamp": r["created_at"]}
+            for r in rows
+        ]
+
     def semantic_stats(self) -> dict:
         row = self.conn.execute(
             "SELECT COUNT(*) as total, AVG(confidence) as avg_confidence, "
@@ -309,3 +351,11 @@ class EpisodicMemory:
     @property
     def store(self) -> MemoryStore:
         return self._store
+
+    def log_evolution_event(self, record_id: str, action: str, target: str,
+                            episode_id: str, description: str) -> None:
+        self._store.log_evolution_event(record_id, action, target, episode_id, description)
+
+    def get_evolution_history(self, tool_name: str | None = None,
+                              limit: int = 20) -> list[dict]:
+        return self._store.get_evolution_history(tool_name, limit)
