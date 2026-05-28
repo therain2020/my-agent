@@ -18,6 +18,19 @@ from .correction import (
 )
 from .dont_do import DontDoEngine, HookPoint, Verdict
 from .errors import InterruptSignal
+from .event_store import EventStore
+from .events import (
+    correction_applied,
+    error_occurred,
+    goal_completed,
+    goal_started,
+    goal_verified,
+    object_observed,
+    plan_generated,
+    rule_added,
+    tool_called,
+    tool_result,
+)
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
 from .objects import AgentObject, ObjectState, build_object_context, extract_state_properties
@@ -56,6 +69,7 @@ class Agent:
         self.executor = ToolExecutor(supervisor=self.supervisor)
         self.security = SecurityManager(self.config["security"]["dont_do_paths"])
         self.memory = EpisodicMemory(self.config["memory"]["path"])
+        self.event_store = EventStore(self.memory.store.conn)
         self.consolidation = ConsolidationDaemon(
             store=self.memory.store,
             provider=self._provider
@@ -168,7 +182,8 @@ class Agent:
                     pass
         return found
 
-    async def _apply_correction(self, correction: Correction) -> None:
+    async def _apply_correction(self, correction: Correction,
+                                  task_id: str = "") -> None:
         """Apply a correction: generate dont-do rule + persist."""
         rule = await correction_to_rule(correction, self._get_provider())
         if rule:
@@ -180,6 +195,14 @@ class Agent:
                 f"User correction: {correction.description[:100]}",
                 correction.to_context(),
             )
+            # Event Sourcing: safety-critical rule addition (synchronous)
+            if task_id:
+                self.event_store.append(correction_applied(
+                    task_id, correction.id, rule.id, correction.description,
+                ))
+                self.event_store.append(rule_added(
+                    task_id, rule.id, rule.description,
+                ))
         correction.applied = True
         self._corrections.append(correction)
         logger.info("correction_applied", corr_id=correction.id,
@@ -550,6 +573,7 @@ TODO: {task}
 
         logger.info("goal_start", task_id=task_id, goal=goal[:200])
         conversation = ""
+        self.event_store.append(goal_started(task_id, goal))
 
         for iteration in range(max_iterations):
             await self.interrupt.check()
@@ -564,6 +588,11 @@ TODO: {task}
                 observation = "\n".join(observation_lines) if observation_lines else "(no objects observed)"
                 conversation += f"\n[Observe] {len(objects)} objects: {observation[:500]}"
 
+                # Event Sourcing: record observations
+                for uri, obj in objects.items():
+                    state = obj.state_before.properties if obj.state_before else {}
+                    self.event_store.append(object_observed(task_id, uri, obj.type, state))
+
                 # Phase 2: Analyze + Plan
                 plan = await self._plan_goal(goal, observation, conversation)
                 if not plan:
@@ -573,13 +602,15 @@ TODO: {task}
                 plan = self._filter_plan_by_dont_do(plan)
                 if not plan:
                     last_error = "All plan steps rejected by dont-do rules"
+                    self.event_store.append(error_occurred(task_id, "PlanError", last_error))
                     break
                 conversation += f"\n[Plan] {len(plan)} steps generated"
+                self.event_store.append(plan_generated(task_id, plan))
             else:
                 # Retry: check for user corrections, then replan
                 corrections = await self._check_for_corrections()
                 for corr in corrections:
-                    await self._apply_correction(corr)
+                    await self._apply_correction(corr, task_id=task_id)
 
                 observation = f"Previous attempt failed. {conversation[-2000:]}"
                 if corrections:
@@ -629,12 +660,24 @@ TODO: {task}
                         elif verdict == Verdict.WARN:
                             conversation += f"\n[Warning] {msg}"
 
+                        # Event Sourcing: tool called
+                        self.event_store.append(tool_called(
+                            task_id, tc["tool"], tc["capability"],
+                            tc.get("params", {}),
+                        ))
+
                         result = await self.executor.execute(
                             tool_def, tc["capability"], tc.get("params", {})
                         )
                         tools_used.append(f"{tc['tool']}.{tc['capability']}")
                         steps_taken += 1
                         result_str = str(result)[:500]
+
+                        # Event Sourcing: tool result
+                        self.event_store.append(tool_result(
+                            task_id, tc["tool"], tc["capability"],
+                            result_str, success=True,
+                        ))
                         conversation += (
                             f"\n[Result from {tc['tool']}.{tc['capability']}]: "
                             f"{result_str}"
@@ -651,9 +694,17 @@ TODO: {task}
                     raise
                 except Exception as e:
                     conversation += f"\n[Error] {step.get('action', str(step))[:100]}: {e}"
+                    self.event_store.append(error_occurred(
+                        task_id, type(e).__name__, str(e),
+                    ))
 
             # Phase 4 V2: Structured Verify
             verification = await self._verify_goal(goal, conversation)
+            self.event_store.append(goal_verified(
+                task_id, verification.get("achieved", False),
+                verification.get("confidence", 0),
+                verification.get("explanation", ""),
+            ))
             if verification.get("achieved") and verification.get("confidence", 0) >= 0.6:
                 last_error = ""
                 break
@@ -665,8 +716,14 @@ TODO: {task}
                 f"unmet={verification.get('unmet', [])}"
             )
 
-        # Record episode
+        # Event Sourcing: completion
         success = not last_error
+        duration = round(time.time() - start_time, 1)
+        self.event_store.append(goal_completed(task_id, success,
+                                                steps_taken, duration))
+        self.event_store.maybe_snapshot(task_id)
+
+        # Record episode
         objects_before, objects_after, object_changes = self._capture_object_states()
         self.memory.log_episode(EpisodeEntry(
             task_id=task_id, task_type="goal", task_summary=goal[:200],
