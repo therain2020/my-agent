@@ -155,6 +155,24 @@ class CostRouter:
     def _strongest(self) -> LLMProvider:
         return self._providers[-1]
 
+    def get_cheapest(self, min_capability_score: float = 0.0) -> LLMProvider | None:
+        """Public: get the cheapest registered provider.
+
+        Used by dual-mode scheduler for exploitation mode.
+        """
+        if not self._providers:
+            return None
+        return self._providers[0]
+
+    def get_strongest(self) -> LLMProvider | None:
+        """Public: get the strongest registered provider.
+
+        Used by dual-mode scheduler for exploration mode.
+        """
+        if not self._providers:
+            return None
+        return self._providers[-1]
+
     def _index_of(self, provider: LLMProvider) -> int:
         for i, p in enumerate(self._providers):
             if p.name == provider.name:

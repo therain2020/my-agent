@@ -5,6 +5,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import structlog
 
@@ -446,14 +447,26 @@ TODO: {task}
 
         conversation = ""
         result_summary = ""
+
+        # Phase 4: dual-mode scheduler — exploit vs explore
+        exec_mode, mode_info = await self._select_mode(task_description)
+
         criteria_text = ""
         if acceptance_criteria:
             criteria_text = (
                 "\n\n验收标准（必须全部满足）:\n" +
                 "\n".join(f"- {c}" for c in acceptance_criteria)
             )
+        mode_context = self._inject_mode_context(exec_mode, mode_info)
+        if mode_context:
+            criteria_text = mode_context + "\n" + criteria_text
 
-        for iteration in range(max_iterations):
+        # Adjust iterations based on mode
+        effective_max_iter = max_iterations
+        if exec_mode.value == "exploit":
+            effective_max_iter = min(max_iterations, 2)
+
+        for iteration in range(effective_max_iter):
             await self.interrupt.check()
 
             # Build prompt
@@ -1342,6 +1355,126 @@ TODO: {task}
             return json.loads(text)
         except json.JSONDecodeError:
             return {"action": "none", "reason": "Failed to parse LLM response"}
+
+    # ——— Dual-mode exploration/exploitation scheduler (十三-B) ———
+
+    async def _select_mode(self, task_description: str) -> tuple:
+        """Classify task as known domain (exploit) or new domain (explore).
+
+        Decision factors:
+        1. Matching skills in semantic memory
+        2. Similar successful episodes
+        3. Explicit user hints
+        """
+        from enum import Enum as _Enum
+
+        class ExecutionMode(_Enum):
+            EXPLORE = "explore"
+            EXPLOIT = "exploit"
+
+        mode_info = {
+            "mode": ExecutionMode.EXPLORE,
+            "confidence": 0.0,
+            "matched_skills": [],
+            "similar_episodes": [],
+            "reason": "",
+        }
+
+        # Factor 1: Skill match (semantic memory)
+        matching_skills = await self._find_matching_skills(task_description)
+        if matching_skills:
+            mode_info["matched_skills"] = matching_skills
+            mode_info["confidence"] += 0.4
+
+        # Factor 2: Similar episodes
+        try:
+            similar = self.memory.store.search_semantic(
+                task_description[:100], limit=3
+            )
+            if similar:
+                mode_info["similar_episodes"] = [
+                    {"summary": s.content[:200], "confidence": s.confidence}
+                    for s in similar if s.confidence > 0.5
+                ]
+                if mode_info["similar_episodes"]:
+                    mode_info["confidence"] += 0.3
+        except Exception:
+            pass
+
+        # Factor 3: Explicit hints
+        task_lower = task_description.lower()
+        if any(hint in task_lower for hint in ("像上次", "和之前一样", "同样的", "再次", "again", "same as before")):
+            mode_info["confidence"] += 0.2
+
+        if mode_info["confidence"] >= 0.5:
+            mode_info["mode"] = ExecutionMode.EXPLOIT
+            mode_info["reason"] = (
+                f"Matched {len(matching_skills)} skills, "
+                f"{len(mode_info['similar_episodes'])} similar episodes "
+                f"(confidence: {mode_info['confidence']:.0%})"
+            )
+        else:
+            mode_info["mode"] = ExecutionMode.EXPLORE
+            mode_info["reason"] = (
+                f"No strong matches (confidence: {mode_info['confidence']:.0%})"
+            )
+
+        logger.info("mode_selected",
+                     mode=mode_info["mode"].value,
+                     reason=mode_info["reason"])
+        return mode_info["mode"], mode_info
+
+    def _get_provider_for_mode(self, mode) -> Any:
+        """Select provider based on execution mode."""
+        if not hasattr(self.router, 'providers') or not self.router.providers:
+            return self._get_provider()
+
+        if mode.value == "exploit":
+            cheapest = self.router.get_cheapest()
+            if cheapest:
+                return cheapest
+        return self.router.get_strongest()
+
+    def _inject_mode_context(self, mode, mode_info: dict) -> str:
+        """Build mode-specific context for the prompt."""
+        if mode.value == "exploit":
+            parts = ["## 已知领域 — 利用模式\n"]
+            parts.append("以下是历史上成功完成类似任务的方法，请优先参考：\n")
+
+            for skill in mode_info.get("matched_skills", []):
+                parts.append(f"\n### 技能: {skill.get('name', '')}")
+                parts.append(f"成功率: {skill.get('success_rate', '?')}%")
+                parts.append(f"方法:\n{skill.get('approach', '')}")
+
+            for ep in mode_info.get("similar_episodes", [])[:2]:
+                parts.append(f"\n### 历史任务: {ep.get('summary', '')[:200]}")
+
+            return "\n".join(parts)
+        else:
+            return (
+                "## 新领域 — 探索模式\n"
+                "这是新的任务类型，没有可直接复用的历史方法。\n"
+                "请仔细探索，记录所有尝试过程。"
+            )
+
+    async def _find_matching_skills(self, task: str) -> list[dict]:
+        """Search semantic memory for matching skills."""
+        try:
+            results = self.memory.store.search_semantic(
+                task[:100], limit=5
+            )
+            return [
+                {
+                    "name": r.content[:100] if r.content else "",
+                    "success_rate": int(r.confidence * 100),
+                    "approach": r.content,
+                }
+                for r in results
+                if r.type in ("skill", "tool_evolution", "pattern")
+                and r.confidence > 0.5
+            ]
+        except Exception:
+            return []
 
     def mine_patterns(self, recent_tasks: int = 100) -> list:
         """Run pattern mining across recent episodes.
