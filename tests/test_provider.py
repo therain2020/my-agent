@@ -86,7 +86,7 @@ class TestDetectProviders:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        providers = detect_providers()
+        providers = detect_providers(config={})
         assert len(providers) == 0
 
     def test_openai_detected(self, monkeypatch):
