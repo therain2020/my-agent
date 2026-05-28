@@ -63,20 +63,25 @@
 | `agent/memory_migrations.py` | Alembic-style — Versioned schema migration |
 | `agent/prompt.py` | ELF loader — Prompt assembly + ontology context injection |
 | `agent/context.py` | MMU + page replacement — LRU context window management |
+| `agent/context_compressor.py` | zswap + KSM — Semantic-aware compression, never touches procedural instructions |
 | `agent/output_format.py` | syslog format enforcer — Citation rules, progressive disclosure |
 | `agent/providers/pool.py` | RAID 1 + multipath — Provider failover with circuit breaker |
 | `agent/providers/router.py` | ondemand cpufreq + NUMA — Cost + capability-aware routing |
 | `agent/providers/capability.py` | CPU affinity — Jagged Frontier model profiling |
 | `agent/tools/registry.py` | udev — Tool registration, lookup by object type |
-| `agent/tools/executor.py` | execve — Tool execution with credential injection |
+| `agent/tools/executor.py` | execve — Tool execution, credential injection, verification hooks |
+| `agent/tools/evolution.py` | kpatch — Runtime tool patching with git version control |
+| `agent/tools/editor.py` | ptrace — Agent tool editing interface (add verify, add helper) |
 | `agent/tools/supervisor.py` | systemd — MCP process lifecycle management |
-| `agent/tools/adapters/` | filesystem drivers — 9 ecosystem adapters |
+| `agent/tools/adapters/` | filesystem drivers — 10 ecosystem adapters (incl. browser harness) |
+| `agent/tools/browser/` | kthread — CDP daemon, screenshot-first interaction, coordinate-click default |
+| `agent/skills/` | shared libraries + ld.so.cache — Social learning network, PII gating, auto-retirement |
 | `agent/security/` | LSM + keyring — Credential guard, prompt injection defense |
 
 ## 常规命令
 
 ```bash
-# 测试 (247 tests)
+# 测试 (302 tests)
 pytest tests/ -v
 
 # Lint

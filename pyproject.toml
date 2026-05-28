@@ -1,7 +1,7 @@
 [project]
 name = "therain2020-agent"
-version = "0.4.1"
-description = "Closed-loop AI agent — ontology objects, event-sourced memory, runtime safety, capability routing, self-teaching patterns"
+version = "0.5.0"
+description = "Self-healing AI agent — ontology objects, event-sourced memory, runtime safety, capability routing, self-teaching patterns, skills network, browser automation"
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.0",

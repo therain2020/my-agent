@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.5.0 (2026-05-28)
+
+Browser Harness-inspired optimization: self-healing tools, semantic compression, skills network, browser automation. 302 tests.
+
+### Phase 1 — Self-Healing Tool Runtime + Silent Failure Detection (九-C + 十-A)
+- **Tool evolution** — `agent/tools/evolution.py` — kpatch-style runtime patching with git version control, validation gate, rollback
+- **Agent tool editor** — `agent/tools/editor.py` — ptrace-style editing surface: add_verify, add_helper, get_edit_history
+- **Verification hooks** — `VerificationResult` + `execute_and_verify()` in executor. Agent writes verify functions at runtime when silent failures detected
+- **Self-healing loop** — core.py detects ToolNotFoundError/ToolExecutionError → triggers healing prompt → agent writes missing code → auto-reloads
+- **Auto-generated verify hooks** — Capability.verify field with auto_generated tracking
+
+### Phase 2 — Semantic Compression + Dual-Mode Scheduler (十一-C + 十三-B)
+- **Semantic compressor** — `agent/context_compressor.py` — content type classification (PROCEDURAL/REFERENCE/CONVERSATION/EVIDENCE), never compresses procedural instructions
+- **Context safety** — ContextPage.compressible field, Hermes Issue #155 prevention
+- **Dual-mode scheduler** — `_select_mode()` classifies tasks as explore or exploit, mode-aware provider selection, fewer iterations for known domains
+
+### Phase 3 — Skills Social Learning Network (十二-C)
+- **Skills package** — `agent/skills/` — Skill/SkillFeedback/SkillLevel models, SQLite+FTS5 repository, lifecycle management
+- **Skill lifecycle** — create → consume → rate(+1/-1 with reason) → iterate → retire(score < -3) → merge(duplicates)
+- **PII gating** — Rule-based patterns + LLM double-check before saving skills
+- **Auto-extraction** — `extract_skill_from_episode()` distills successful episodes into reusable skills
+- **Auto-injection** — Matching skills injected into prompts via memory_context
+
+### Phase 4 — Native Browser Harness Adapter (十四-B)
+- **CDP daemon** — `agent/tools/browser/daemon.py` — Chrome discovery, TCP loopback IPC, token-based security
+- **Browser helpers** — `agent/tools/browser/helpers.py` — coordinate-click default, screenshot-first interaction, direct CDP (no Playwright/Selenium)
+- **12 capabilities** — navigate, capture_screenshot, click_at_xy, type_text, js, cdp, fill_input, page_info, etc.
+- **Browser adapter** — `agent/tools/adapters/browser_harness.py` — registers browser tools into agent registry
+
+### Added
+- New modules: `evolution.py`, `editor.py`, `context_compressor.py`, `skills/` (5 files), `browser/` (4 files), `adapters/browser_harness.py`
+- 55 new tests (247 → 302)
+- New dependency: `websockets>=13.0`
+
 ## v0.4.1 (2026-05-28)
 
 ### Changed
