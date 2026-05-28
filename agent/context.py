@@ -6,6 +6,7 @@ Manages what's in the LLM context window — loading, evicting, compressing.
 
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 
@@ -23,17 +24,19 @@ class ContextPage:
     in_context: bool = True
     source: str = ""       # Not in context? Where to reload from.
     eviction_policy: str = "discard"  # discard | compress | persist
+    compressible: bool = True  # Can this page be safely compressed?
 
 
 class ContextManager:
     """Virtual memory for LLM context. 类比: MMU + LRU page replacement."""
 
-    def __init__(self, max_tokens: int = 100000):
+    def __init__(self, max_tokens: int = 100000, compressor: Any = None):
         self.max_tokens = max_tokens
         self.pages: dict[str, ContextPage] = {}
         self.in_context_tokens: int = 0
         self.page_faults: int = 0
         self.evictions: int = 0
+        self.compressor = compressor  # SemanticCompressor | None
 
     def load(self, page_id: str, content: str, priority: int = 3,
              eviction_policy: str = "discard", source: str = "") -> str:
@@ -119,6 +122,33 @@ class ContextManager:
         )
 
         return summary + "\n" + "\n".join(recent)
+
+    async def compress_content_async(
+        self, content_id: str, text: str
+    ) -> tuple[str, bool]:
+        """Async compression using semantic compressor when available.
+
+        Returns (compressed_text, was_compressed).
+        If the content is classified as PROCEDURAL, it is NEVER compressed,
+        preventing the Hermes Issue #155 class of bugs.
+        """
+        if self.compressor is None or len(text) < 300:
+            return text, False
+
+        try:
+            ct = await self.compressor.classify_async(content_id, text)
+            if ct.value == "procedural":
+                return text, False  # NEVER compress procedural instructions
+
+            compressed, feedback = await self.compressor.compress(
+                content_id, text, ct
+            )
+            if feedback.decision.value != "keep_intact":
+                return compressed, True
+        except Exception:
+            pass
+
+        return text, False
 
     def stats(self) -> dict:
         loaded = sum(1 for p in self.pages.values() if p.in_context)
