@@ -48,6 +48,8 @@ from .providers.router import CostRouter
 from .retry import retry
 from .role import DEFAULT_ROLE
 from .security import SecurityManager
+from .skills import SkillLifecycle, SkillRepository
+from .skills.models import Skill, SkillLevel
 from .tools.editor import AgentToolEditor
 from .tools.evolution import ToolEvolutionManager
 from .tools.executor import ToolExecutor, VerificationResult
@@ -109,6 +111,12 @@ class Agent:
         )
         self.tool_editor = AgentToolEditor(self.evolution)
         self._current_episode_id: str = ""
+
+        # Phase 5: skills network (十二-C)
+        self.skill_repo = SkillRepository(
+            db_path=self.config.get("skills", {}).get("path", "data/skills.db")
+        )
+        self.skill_lifecycle = SkillLifecycle(self.skill_repo)
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""
@@ -488,10 +496,25 @@ TODO: {task}
                 "如果任务已完成，给出最终回答，不要继续调用工具。"
             )
 
+            # Phase 5: inject matching skills
+            skills_context = ""
+            if iteration == 0:
+                matching = self.skill_repo.find_by_triggers(
+                    task_description, limit=3
+                )
+                if matching:
+                    skills_context = "## 可参考的技能（已验证）\n\n"
+                    for s in matching:
+                        skills_context += (
+                            f"### {s.name} (成功率: {s.success_rate:.0%}, 使用: {s.uses}次)\n"
+                            f"方法:\n{s.approach}\n\n"
+                        )
+
             prompt = self.prompt_assembler.assemble(PromptInputs(
                 role=role_text,
                 dont_do_rules=self.security.get_constraints_prompt(relevant_objects),
                 tool_summaries=format_tool_summary(tools),
+                memory_context=skills_context,
                 task=task_description + criteria_text,
                 conversation_summary=result_summary if iteration > 0 else "",
                 recent_messages=conversation,
@@ -651,6 +674,32 @@ TODO: {task}
                 await self.consolidation.consolidate()
             except Exception as e:
                 logger.error("consolidation_error", error=str(e))
+
+        # Phase 5: extract skill from successful episode
+        if success and steps_taken > 1:
+            try:
+                skill_data = await self.consolidation.extract_skill_from_episode(
+                    task_description[:200], list(set(tools_used)), steps_taken
+                )
+                if skill_data:
+                    import uuid as _uuid
+                    skill = Skill(
+                        id=f"skill-{_uuid.uuid4().hex[:12]}",
+                        name=skill_data["name"],
+                        task_type=skill_data.get("task_type", "general"),
+                        domain=skill_data.get("domain", ""),
+                        triggers=skill_data.get("triggers", []),
+                        level=SkillLevel.L1_UI,
+                        approach=skill_data.get("approach", ""),
+                        preconditions=skill_data.get("preconditions", []),
+                        postconditions=skill_data.get("postconditions", []),
+                        created_by=task_id,
+                    )
+                    self.skill_repo.save(skill)
+                    self.skill_lifecycle.merge_duplicates(skill.id)
+                    logger.info("skill_extracted", skill_id=skill.id, name=skill.name)
+            except Exception as e:
+                logger.debug("skill_extraction_failed", error=str(e))
 
         return {
             "task_id": task_id,
