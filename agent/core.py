@@ -465,9 +465,16 @@ TODO: {task}
                 criteria_text = "\n\n验收标准:\n" + "\n".join(f"- {c}" for c in acceptance_criteria)
 
             role_text = (
-                "你是一个编程助手。逐步执行任务。\n"
-                "使用 <function_call> XML 标签调用工具。\n"
-                "完成所有验收标准后再结束。"
+                "你是一个编程助手。按照用户的任务指令逐步执行。\n"
+                "完成所有验收标准后再结束。\n\n"
+                "当你需要使用工具时，必须用以下格式输出：\n"
+                "<function_call>\n"
+                "<name>工具名称</name>\n"
+                "<capability>能力名称</capability>\n"
+                "<parameters>{\"参数名\": \"参数值\"}</parameters>\n"
+                "</function_call>\n\n"
+                "收到工具结果后，根据结果继续执行或给出最终回答。\n"
+                "如果任务已完成，给出最终回答，不要继续调用工具。"
             )
 
             prompt = self.prompt_assembler.assemble(PromptInputs(
