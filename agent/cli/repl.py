@@ -47,7 +47,7 @@ LOGO = r"""
   Type /help for commands, Ctrl+C or /exit to quit.
 """.format(
     _bold("therain2020-agent"),
-    "0.6.0",
+    "0.6.1",
 )
 
 HELP_TEXT = f"""
@@ -287,6 +287,11 @@ class AgentRepl:
 
 def run_repl(provider=None) -> None:
     """Start the interactive REPL from the CLI entry point."""
+    # Ensure data directories exist under ~/.therain2020-agent/
+    data_dir = Path.home() / ".therain2020-agent"
+    for sub in ["memory", "tools", "tools/.generated", "dont-do"]:
+        (data_dir / sub).mkdir(parents=True, exist_ok=True)
+
     agent = Agent()
     agent.setup()
 

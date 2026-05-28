@@ -30,23 +30,32 @@ class LLMConfig:
     providers: list[dict] = field(default_factory=list)
 
 
+def _default_data_dir() -> str:
+    return str(Path.home() / ".therain2020-agent")
+
+
 @dataclass
 class MemoryConfig:
     """Memory storage configuration."""
-    path: str = "./memory"
+    path: str = field(default_factory=lambda: str(Path.home() / ".therain2020-agent" / "memory" / "agent.db"))
 
 
 @dataclass
 class ToolsConfig:
     """Tool registry configuration."""
-    scan_paths: list[str] = field(default_factory=lambda: ["./tools", "./tools/.generated"])
+    scan_paths: list[str] = field(default_factory=lambda: [
+        str(Path.home() / ".therain2020-agent" / "tools"),
+        str(Path.home() / ".therain2020-agent" / "tools" / ".generated"),
+    ])
     default_timeout_ms: int = 30000
 
 
 @dataclass
 class SecurityConfig:
     """Security (dont-do paths) configuration."""
-    dont_do_paths: list[str] = field(default_factory=lambda: ["./dont-do"])
+    dont_do_paths: list[str] = field(default_factory=lambda: [
+        str(Path.home() / ".therain2020-agent" / "dont-do"),
+    ])
 
 
 @dataclass

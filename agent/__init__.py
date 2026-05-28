@@ -1,3 +1,3 @@
 """therain2020-agent: Add-First Agent skeleton."""
 
-__version__ = "0.4.1"
+__version__ = "0.6.1"

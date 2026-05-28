@@ -114,7 +114,10 @@ class Agent:
 
         # Phase 5: skills network (十二-C)
         self.skill_repo = SkillRepository(
-            db_path=self.config.get("skills", {}).get("path", "data/skills.db")
+            db_path=self.config.get("skills", {}).get(
+                "path",
+                str(Path.home() / ".therain2020-agent" / "skills.db"),
+            )
         )
         self.skill_lifecycle = SkillLifecycle(self.skill_repo)
 
