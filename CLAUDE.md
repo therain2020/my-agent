@@ -118,12 +118,10 @@ Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远
 # 1. 确认 GitHub Actions
 gh run list -w release.yml --limit 1
 
-# 2. 确认 PyPI 版本（走代理）
-curl -s --proxy $env:net_proxy \
-  "https://pypi.org/pypi/therain2020-agent/json" \
-  | python -c "import sys,json; d=json.load(sys.stdin); print(d['info']['version'])"
+# 2. 确认 PyPI 版本
+python -c "import urllib.request,json; d=json.loads(urllib.request.urlopen('https://pypi.org/pypi/therain2020-agent/json').read()); print(d['info']['version'])"
 
-# 3. 干净环境安装测试（走代理）
+# 3. 干净环境安装测试
 python -m venv /tmp/test-pypi
 /tmp/test-pypi/Scripts/pip install --proxy $env:net_proxy \
   therain2020-agent==<version>
