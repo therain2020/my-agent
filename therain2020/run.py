@@ -1,8 +1,7 @@
-"""Minimal CLI entry point — no argparse, no subcommands.
+"""Minimal CLI — Claude Code style.
 
 Usage:
     therain2020 <task>
-    therain2020 --tui
     therain2020 --repl
     echo <task> | therain2020
 """
@@ -16,31 +15,40 @@ from .agent import run
 from .session import create_session
 
 
-async def main():
+async def _run_task(task: str):
+    try:
+        session = create_session(task=task)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    result = await run(task, session)
+    print(result)
+
+
+async def _run_repl():
+    from .cli.repl import AgentRepl
+
+    repl = AgentRepl()
+    await repl.start()
+
+
+def cli():
     args = sys.argv[1:]
 
     if args and args[0] in ("-h", "--help"):
         print("Usage:")
         print("  therain2020 <task>")
-        print("  therain2020 --tui")
         print("  therain2020 --repl")
         print("  echo <task> | therain2020")
         return
 
-    if args and args[0] == "--tui":
-        from .cli.tui import run_tui
-        run_tui()
-        return
-
     if args and args[0] == "--repl":
-        from .cli.repl import run_repl
-        run_repl()
+        asyncio.run(_run_repl())
         return
 
     if not args and sys.stdin.isatty():
         print("Usage: therain2020 <task>")
-        print("       therain2020 --tui     (Textual UI)")
-        print("       therain2020 --repl    (terminal REPL)")
+        print("       therain2020 --repl")
         print("       echo <task> | therain2020")
         sys.exit(1)
 
@@ -49,18 +57,7 @@ async def main():
         print("Error: empty task", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        session = create_session(task=task)
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    result = await run(task, session)
-    print(result)
-
-
-def cli():
-    asyncio.run(main())
+    asyncio.run(_run_task(task))
 
 
 if __name__ == "__main__":
