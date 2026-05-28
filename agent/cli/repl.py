@@ -47,7 +47,7 @@ LOGO = r"""
   Type /help for commands, Ctrl+C or /exit to quit.
 """.format(
     _bold("therain2020-agent"),
-    "0.5.0",
+    "0.6.0",
 )
 
 HELP_TEXT = f"""
