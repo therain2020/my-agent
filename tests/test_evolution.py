@@ -1,13 +1,11 @@
 """Tests for tool evolution manager and agent tool editor."""
 
-import pytest
-
+from agent.tools.editor import EDIT_CAPABILITIES, AgentToolEditor, _rebuild_tool_md
 from agent.tools.evolution import (
     EvolutionAction,
     EvolutionRecord,
     ToolEvolutionManager,
 )
-from agent.tools.editor import AgentToolEditor, EDIT_CAPABILITIES, _rebuild_tool_md
 
 
 class TestEvolutionRecord:
@@ -96,10 +94,8 @@ class TestToolEvolutionManager:
         assert record.action == EvolutionAction.CREATE
         assert record.episode_id == "ep-001"
 
-        # Commit
-        ok = mgr.validate_and_commit(record.id)
-        # May fail if no git repo, but at least validate YAML + Python passes
-        # The git operations may fail but the validation should succeed
+        # Commit — may fail on git (no repo) but YAML/Python validation passes
+        mgr.validate_and_commit(record.id)
         assert record.id not in mgr._pending  # consumed from pending
 
     def test_commit_invalid_yaml_rejected(self, tmp_path):

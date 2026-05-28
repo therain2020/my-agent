@@ -1,7 +1,5 @@
 """Tests for verification hooks in tool executor (十-A)."""
 
-import pytest
-
 from agent.tools.executor import VerificationResult
 
 
