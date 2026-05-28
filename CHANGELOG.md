@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.6.0 (2026-05-28)
+
+### Added
+- **Interactive REPL** — `therain2020-agent` without arguments starts an interactive session like Claude Code
+- Agent stays alive across turns, context persists (memory, skills, tool evolution)
+- Streaming progress: live tool execution feedback with ✓/⚠ indicators
+- Slash commands: `/help`, `/clear`, `/tools`, `/mode`, `/history`, `/skills`, `/exit`
+- Progress callback system (`set_progress_callback` + `_emit_progress`) for streaming UX
+
+### Fixed
+- Agent `__init__` provider reference order (accessed before declaration)
+
 ## v0.5.0 (2026-05-28)
 
 Browser Harness-inspired optimization: self-healing tools, semantic compression, skills network, browser automation. 302 tests.
