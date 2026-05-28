@@ -2,11 +2,13 @@
 
 Strategies: performance, powersave, ondemand.
 Progressive escalation: haiku→sonnet→opus, escalate on failure.
+Phase 3: Capability-aware routing overlaid on cost routing.
 """
 
 import structlog
 
 from agent.providers import LLMProvider
+from agent.providers.capability import CapabilityProfile
 
 logger = structlog.get_logger()
 
@@ -33,6 +35,7 @@ class CostRouter:
         self._costs: dict[str, float] = {}       # provider_name → $/1M tokens
         self._capabilities: dict[str, int] = {}  # provider_name → 1-5
         self._escalation_counts: dict[str, int] = {}
+        self.capability_profile = CapabilityProfile()
 
     def register(self, provider: LLMProvider, cost_per_1m: float = 0.0,
                  capability: int = 3):
@@ -88,12 +91,58 @@ class CostRouter:
             return next_prov
         return None
 
+    def route_with_capability(self, task: str, task_type: str = "") -> LLMProvider:
+        """Route with capability profile awareness.
+
+        If we have enough data for this task_type, use capability-based
+        routing to pick the cheapest model with high success rate.
+        Otherwise, fall back to cost-based routing (cold start).
+
+        Args:
+            task: The task description text.
+            task_type: Optional task type hint (e.g., "file_edit", "database_query").
+
+        Returns:
+            Selected LLM provider.
+        """
+        if not self._providers:
+            raise ValueError("No providers registered in CostRouter")
+
+        if self.strategy in ("performance", "powersave"):
+            return self.route(task)
+
+        # Try capability-based routing
+        if task_type:
+            model_names = [p.name for p in self._providers]
+            best = self.capability_profile.best_model_for(
+                task_type, model_names,
+                cost_map=self._costs,
+            )
+            if best:
+                for p in self._providers:
+                    if p.name == best:
+                        logger.info("capability_route", task_type=task_type,
+                                    model=best)
+                        return p
+
+        # Cold start: fall back to cost-based routing
+        return self.route(task)
+
+    def record_result(self, model: str, task_type: str, task_summary: str,
+                      success: bool, steps: int) -> None:
+        """Record a completed task result for capability learning."""
+        self.capability_profile.update(
+            model, task_type, task_summary, success, steps,
+        )
+
     def stats(self) -> dict:
-        return {
+        base = {
             "strategy": self.strategy,
             "providers": len(self._providers),
             "escalations": dict(self._escalation_counts),
         }
+        base["capability"] = self.capability_profile.stats()
+        return base
 
     def estimated_cost(self, tokens: int, provider: LLMProvider) -> float:
         """Estimate cost for a given token count."""
