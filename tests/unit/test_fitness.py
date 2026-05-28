@@ -383,4 +383,4 @@ class TestAgentFactory:
         """Dev config should have reasonable defaults."""
         config = AppConfig.dev()
         assert config.agent.max_loop_iterations == 3
-        assert config.memory.path == "./memory"
+        assert "therain2020-agent" in config.memory.path  # under ~/.therain2020-agent/

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.6.1 (2026-05-28)
+
+### Fixed
+- Default data paths now use `~/.therain2020-agent/` instead of relative `./memory`, `./tools`, `./dont-do`
+- REPL no longer crashes when run from a non-writable directory
+
 ## v0.6.0 (2026-05-28)
 
 ### Added
