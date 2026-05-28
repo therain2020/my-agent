@@ -45,7 +45,7 @@ LOGO = r"""
   Ctrl+T to toggle thinking display.
 """.format(
     _bold("therain2020-agent"),
-    "0.6.1",
+    "0.7.0",
 )
 
 HELP_TEXT = f"""

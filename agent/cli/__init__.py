@@ -12,7 +12,7 @@ from agent.cli import add, info, providers, publish, run, status
 
 
 @click.group(invoke_without_command=True)
-@click.version_option(version="0.6.1", prog_name="therain2020-agent")
+@click.version_option(version="0.7.0", prog_name="therain2020-agent")
 @click.pass_context
 def main(ctx):
     """therain2020-agent — self-healing AI agent.

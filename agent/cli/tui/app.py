@@ -179,7 +179,7 @@ class AgentTui(App):
 
         # Header
         self.title = "therain2020-agent"
-        self.sub_title = f"v0.6.1  model:[cyan]{model}[/]  session:{self._agent.session_id}"
+        self.sub_title = f"v0.7.0  model:[cyan]{model}[/]  session:{self._agent.session_id}"
 
         # Footer
         self.query_one("#footer-bar", Static).update(
@@ -189,7 +189,7 @@ class AgentTui(App):
 
         # Welcome
         self._add_to_transcript(
-            "[bold]therain2020-agent[/] [dim]v0.6.1[/]\n"
+            "[bold]therain2020-agent[/] [dim]v0.7.0[/]\n"
             f"Model: [cyan]{model}[/] [dim]({source})[/]\n"
             "Type a task or [dim]/help[/] for commands.\n"
         )
