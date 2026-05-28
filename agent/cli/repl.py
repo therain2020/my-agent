@@ -295,11 +295,32 @@ def run_repl(provider=None) -> None:
     agent = Agent()
     agent.setup()
 
+    # Auto-detect provider from environment variables
+    provider_set = False
     if provider:
         from agent.cli.providers import get_provider
         prov = get_provider(provider)
         if prov:
             agent.set_provider(prov, None)
+            provider_set = True
+    else:
+        from agent.cli.autodetect import detect_from_env
+        detected, config, source = detect_from_env()
+        if detected:
+            agent.set_provider(detected, config)
+            provider_set = True
+
+    if not provider_set:
+        click.echo(
+            _warn("No LLM provider found.") + "\n\n"
+            + _dim("Set an API key via environment variable:\n")
+            + _dim("  $env:DEEPSEEK_API_KEY = \"sk-...\"     # DeepSeek\n")
+            + _dim("  $env:ANTHROPIC_API_KEY = \"sk-ant-...\" # Anthropic\n")
+            + _dim("  $env:OPENAI_API_KEY = \"sk-...\"       # OpenAI\n")
+            + _dim("  $env:ALI_TONGYI_KEY = \"sk-...\"       # Qwen (Alibaba)\n")
+            + _dim("\nOr configure manually:\n")
+            + _dim("  therain2020-agent provider add <name> --api-key-env <VAR> --model <model>\n")
+        )
 
     try:
         # Register browser tools (optional — fails gracefully if no Chrome)
