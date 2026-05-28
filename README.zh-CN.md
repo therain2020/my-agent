@@ -212,7 +212,7 @@ therain2020-agent info config
 | `tools/supervisor.py` | systemd | MCP 进程管理 |
 | `security/` | LSM + keyring | 凭据守卫，prompt 注入防御 |
 
-设计文档 30 篇，方案变体 80+，OS 类比映射 119 个。见 `D:\GitHub\agent-design\temp\`。
+设计文档 30 篇，方案变体 80+，OS 类比映射 119 个。[飞书知识库](https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651)。
 
 ---
 
