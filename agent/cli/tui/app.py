@@ -51,7 +51,7 @@ class ThinkBlock(Static):
         if self.expanded:
             self.update(f"[dim]● Thinking[/]\n[dim]{self._buf[-2000:]}[/]")
         else:
-            self.update(f"[dim]● Thinking... ({len(self._buf)} chars)[/]")
+            self.update(f"[dim]● Thinking... ({len(self._buf)} chars)  Ctrl+O to expand[/]")
 
 
 class RespBlock(Markdown):
@@ -130,7 +130,7 @@ class AgentTui(App):
     """
 
     BINDINGS = [
-        Binding("ctrl+t", "toggle_thinking", "Think"),
+        Binding("ctrl+o", "toggle_thinking", "Think"),
         Binding("ctrl+c", "quit", "Exit"),
         Binding("enter", "submit", "Send", priority=True),
         Binding("ctrl+enter", "newline", "NL", show=False),
@@ -181,7 +181,7 @@ class AgentTui(App):
             self._model = c.model if c else "?"
         self.title = "therain2020-agent"
         self.sub_title = f"[{self._model}]"
-        self._status(f"{self._model}  |  Ctrl+T think  |  /help  |  Ctrl+C exit")
+        self._status(f"{self._model}  |  Ctrl+O think  |  /help  |  Ctrl+C exit")
         self._say(f"[bold]therain2020-agent[/] — {self._model} [dim]({src})[/]")
         self._say("[dim]Ask anything. /help for commands.[/]")
         self.query_one("#prompt", TextArea).focus()
@@ -337,5 +337,5 @@ class AgentTui(App):
             self._say(f"[red]Error: {e}[/]")
         finally:
             self._busy = False
-            self._status(f"{self._model}  |  Ctrl+T think  |  /help  |  Ctrl+C exit")
+            self._status(f"{self._model}  |  Ctrl+O think  |  /help  |  Ctrl+C exit")
             self.query_one("#prompt", TextArea).focus()
