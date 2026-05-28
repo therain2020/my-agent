@@ -37,6 +37,18 @@
 | 29 | cost-routing.md | 成本路由 |
 | 30 | phase-three-plan.md | Phase 3 实施计划（质量与协作）|
 
+## Project Docs
+
+项目文档同样位于飞书知识库：https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651
+
+| 文件 | 主题 |
+|------|------|
+| comprehensive-evaluation-plan.md | 多角度综合评估与路线图（10 方向 × 7 维度评估）|
+| improvement-plan-1-2-3-merged.md | 原始改进方案合并版 |
+| improvement-plan-1.md | Phase 1 改进方案（非集集成 + 对象状态记忆）|
+| improvement-plan-2.md | Phase 2 改进方案（角色观察 + 验证改进）|
+| improvement-plan-3.md | Phase 3 改进方案（纠正闭环 + TODO 闭环 + 文献格式）|
+
 ## 行为规则
 
 - 当用户讨论设计方案、架构决策或新需求时，主动查阅设计文档作为上下文参考
