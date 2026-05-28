@@ -123,33 +123,56 @@ class TestDontDoEffectiveness:
         )
 
     def test_context_preparation_gap(self):
-        """FF-2 FINDING: Agent doesn't set path_in_restricted/path_matches.
+        """FF-2 FIXED: Agent._enrich_dont_do_context now sets path keys.
 
-        The dont-do rules use path_in_restricted and path_matches keys,
-        but the agent loop's _check_dont_do() only passes object/operation/tool.
-        This means r-fs-001 and r-fs-002 never match in production.
-
-        This FF documents the gap — the agent loop needs to enrich the
-        dont-do context with path-based match keys extracted from params.
+        Previously this test documented a gap where r-fs-001/r-fs-002
+        never matched because the agent didn't set path_in_restricted
+        or path_matches. Now _enrich_dont_do_context() extracts path
+        info from params and sets these keys automatically.
         """
-        # Simulate what the agent ACTUALLY passes to dont_do.check():
+        from agent.core import Agent
         ctx = {
             "object": "file",
             "operation": "write",
             "tool": "file-system",
             "params": {"path": "/etc/passwd"},
         }
-        # Without path_in_restricted=True, r-fs-001 won't match
-        verdict, _ = self.engine.check(HookPoint.PRE_ACTION, ctx)
-        # This SHOULD be REJECT but currently returns ALLOW
-        # because the context lacks path_in_restricted
-        assert verdict == Verdict.ALLOW, (
-            "FF-2 FINDING: With current agent context (no path_in_restricted), "
-            "dont-do rules do NOT block dangerous writes. "
-            "The agent loop needs context enrichment before calling "
-            "dont_do.check(). See docs/comprehensive-evaluation-plan.md "
-            "section on Trust Boundaries."
+        enriched = Agent._enrich_dont_do_context(ctx)
+        assert enriched.get("path_in_restricted") is True, (
+            "FF-2 FIXED: /etc/passwd should set path_in_restricted=True"
         )
+        # Now the enriched context should be blocked by r-fs-001
+        verdict, _ = self.engine.check(HookPoint.PRE_ACTION, enriched)
+        assert verdict != Verdict.ALLOW, (
+            "FF-2 FIXED: Enriched context with /etc/passwd must be REJECTED"
+        )
+
+    def test_enrich_context_sensitive_file(self):
+        """Context with .env path should set path_matches."""
+        from agent.core import Agent
+        ctx = {
+            "object": "file",
+            "operation": "write",
+            "tool": "file-system",
+            "params": {"path": ".env"},
+        }
+        enriched = Agent._enrich_dont_do_context(ctx)
+        assert enriched.get("path_matches") is not None, (
+            "FF-2 FIXED: .env should set path_matches"
+        )
+
+    def test_enrich_context_normal_file_unaffected(self):
+        """Normal files should not set restricted/sensitive keys."""
+        from agent.core import Agent
+        ctx = {
+            "object": "file",
+            "operation": "write",
+            "tool": "file-system",
+            "params": {"path": "src/main.py"},
+        }
+        enriched = Agent._enrich_dont_do_context(ctx)
+        assert "path_in_restricted" not in enriched
+        assert "path_matches" not in enriched
 
     def test_plan_hook_rejects_dangerous_plan(self):
         """PLAN hook should detect dangerous intentions (r-fs-001)."""

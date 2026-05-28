@@ -35,6 +35,7 @@ from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
 from .objects import AgentObject, ObjectState, build_object_context, extract_state_properties
 from .output_format import OutputFormatManager
+from .pattern_miner import PatternMiner
 from .prompt import (
     PromptAssembler,
     PromptInputs,
@@ -42,6 +43,7 @@ from .prompt import (
     format_tool_summary,
 )
 from .providers import LLMProvider, ProviderConfig
+from .providers.router import CostRouter
 from .retry import retry
 from .role import DEFAULT_ROLE
 from .security import SecurityManager
@@ -59,8 +61,9 @@ class Agent:
     Phase 2 will add Goal-mode planning.
     """
 
-    def __init__(self, config_path: Path | None = None):
-        self.config = load_config(config_path)
+    def __init__(self, config_path: Path | None = None,
+                 config_dict: dict | None = None):
+        self.config = config_dict if config_dict is not None else load_config(config_path)
         self.session_id = str(uuid.uuid4())[:8]
 
         # Components
@@ -92,6 +95,10 @@ class Agent:
         # Phase 3: correction tracking
         self._corrections: list[Correction] = []
         self._pending_corrections: list[Correction] = []
+
+        # Phase 3: capability routing + pattern mining
+        self.router = CostRouter()
+        self._pattern_miner: PatternMiner | None = None
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""
@@ -153,13 +160,58 @@ class Agent:
                     })
         return before, after, changes
 
+    # Paths that should never be written to by an agent
+    _RESTRICTED_PREFIXES = (
+        "/etc/", "/boot/", "/sys/", "/proc/", "/dev/",
+        "C:\\Windows\\", "C:\\Windows\\System32\\",
+        "/System/", "/Library/",
+    )
+    _SENSITIVE_FILES = (".env", ".git", "credentials", "secrets", ".pem", ".key")
+
+    @staticmethod
+    def _enrich_dont_do_context(ctx: dict) -> dict:
+        """Add path-based match keys to dont-do context.
+
+        Extracts path from params and sets path_in_restricted and
+        path_matches so that r-fs-001 and r-fs-002 can match.
+        """
+        params = ctx.get("params", {})
+        path = params.get("path", params.get("file", params.get("uri", "")))
+        if not path:
+            return ctx
+
+        enriched = dict(ctx)
+
+        # Check restricted prefixes
+        path_lower = path.lower().replace("\\", "/")
+        for prefix in Agent._RESTRICTED_PREFIXES:
+            prefix_lower = prefix.lower().replace("\\", "/")
+            if path_lower.startswith(prefix_lower):
+                enriched["path_in_restricted"] = True
+                break
+
+        # Check sensitive file patterns
+        basename = path_lower.rsplit("/", 1)[-1]
+        for sensitive in Agent._SENSITIVE_FILES:
+            if sensitive.lower() in basename or basename.startswith(sensitive.lower()):
+                enriched["path_matches"] = sensitive
+                break
+
+        return enriched
+
     def _check_dont_do(self, hook: HookPoint, ctx: dict) -> tuple[Verdict, str]:
-        """Check dont-do rules at a hook point. Returns (verdict, message)."""
-        verdict, msg = self.dont_do.check(hook, ctx)
+        """Check dont-do rules at a hook point. Returns (verdict, message).
+
+        Context is enriched with path-based match keys before checking,
+        so that r-fs-001 (path_in_restricted) and r-fs-002 (path_matches)
+        can actually fire.
+        """
+        enriched = self._enrich_dont_do_context(ctx)
+        verdict, msg = self.dont_do.check(hook, enriched)
         if verdict != Verdict.ALLOW:
             self._track_non_set_change(
                 "hit", ctx.get("rule_id", "unknown"),
-                msg, ctx
+                msg, enriched
             )
         return verdict, msg
 
@@ -535,6 +587,9 @@ TODO: {task}
         logger.info("task_complete", task_id=task_id, success=success,
                      steps=steps_taken, duration_seconds=duration)
 
+        # Phase 3: Record capability result for routing
+        self._record_capability_result(task_description, success, steps_taken)
+
         # Trigger consolidation
         self.consolidation.on_task_end(interrupted=not success)
         self.consolidation.set_provider(self._get_provider())
@@ -734,6 +789,9 @@ TODO: {task}
             objects_after=objects_after,
             object_changes=object_changes,
         ))
+
+        # Phase 3: Record capability result
+        self._record_capability_result(goal, success, steps_taken)
 
         # Consolidation trigger
         self.consolidation.on_task_end(interrupted=not success)
@@ -1005,6 +1063,48 @@ TODO: {task}
 
         return results
 
+    # ——— Phase 3: Capability recording + Pattern mining ———
+
+    def _record_capability_result(self, task: str, success: bool, steps: int) -> None:
+        """Record a completed task result for capability learning."""
+        if self._provider_config is None:
+            return
+        model = self._provider_config.model
+        task_type = self._infer_task_type(task)
+        self.router.record_result(model, task_type, task, success, steps)
+        logger.debug("capability_recorded", model=model, task_type=task_type,
+                     success=success)
+
+    @staticmethod
+    def _infer_task_type(task: str) -> str:
+        """Infer a task type from the task description."""
+        task_lower = task.lower()
+        if any(kw in task_lower for kw in ("database", "sql", "migrate", "query")):
+            return "database"
+        if any(kw in task_lower for kw in ("git", "commit", "branch", "push", "merge")):
+            return "git"
+        if any(kw in task_lower for kw in ("refactor", "rewrite", "restructure")):
+            return "refactor"
+        if any(kw in task_lower for kw in ("test", "pytest", "coverage")):
+            return "testing"
+        if any(kw in task_lower for kw in ("deploy", "release", "publish")):
+            return "deploy"
+        if any(kw in task_lower for kw in ("read", "show", "list", "find", "search")):
+            return "read"
+        if any(kw in task_lower for kw in ("write", "edit", "create", "add", "modify",
+                                            "delete", "remove", "update")):
+            return "file_edit"
+        return "general"
+
+    def mine_patterns(self, recent_tasks: int = 100) -> list:
+        """Run pattern mining across recent episodes.
+
+        Returns list of PatternProposal for human review.
+        """
+        if self._pattern_miner is None:
+            self._pattern_miner = PatternMiner(self.event_store)
+        return self._pattern_miner.mine(recent_tasks=recent_tasks)
+
 
 # ——— Agent factory ———
 
@@ -1038,8 +1138,8 @@ def create_agent(
     if config is None:
         config = AppConfig.from_yaml(config_path)
 
-    agent = Agent()
-    agent.config = {
+    # Build config dict BEFORE creating Agent so memory path is correct
+    config_dict = {
         "agent": {
             "name": config.agent.name,
             "max_loop_iterations": config.agent.max_loop_iterations,
@@ -1053,9 +1153,7 @@ def create_agent(
         "security": {"dont_do_paths": config.security.dont_do_paths},
     }
 
-    # Re-initialize memory with possibly overridden path
-    if memory_path:
-        agent.memory = EpisodicMemory(memory_path)
+    agent = Agent(config_dict=config_dict)
 
     if provider:
         agent.set_provider(provider, provider_config or ProviderConfig(
