@@ -2,7 +2,7 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-247%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-302%20passed-brightgreen.svg)](tests/)
 [![PyPI](https://img.shields.io/pypi/v/therain2020-agent.svg)](https://pypi.org/project/therain2020-agent/)
 
 [English](README.md)
@@ -21,6 +21,10 @@
 - **记忆用事件溯源。** 每次观察、每次工具调用、每次纠正、每次验证都是一条不可变事件。可完整回放。可审计。
 - **路由看能力，不只看成本。** 记录每个模型在每类任务上的成功率。发现 haiku 做数据库迁移成功率只有 60%，自动切到 sonnet。
 - **自己发现模式。** 挖掘历史任务中的重复错误、重复纠正、重复失败。主动提议规则。你来批。
+- **工具自己会进化。** 工具缺失或静默失败时，agent 自己读现有代码、写缺失函数、git 提交、重试。坏了能回滚。
+- **积累技能网络。** 每次成功任务都蒸馏成技能。技能有评分、有迭代、太烂自动退役、雷同自动合并。保存前 PII 双重检查。
+- **压缩上下文不乱删。** LLM 驱动的语义压缩，程序指令类的永不压缩——防止"诶我的规则呢"这类 bug。
+- **直接操控浏览器。** 不走 Playwright 包装层，裸 CDP 直连。截图→看像素→点坐标→再截图验证。agent 跑着跑着自己扩展浏览器工具。
 
 ---
 
@@ -109,6 +113,16 @@ POST_ACTION → 执行后审计结果
 
 发现 agent 做错了？往 `corrections/` 目录扔个 YAML。agent 自动生成 dont-do 规则、持久化、重规划。同一个错误不犯第二次。
 
+### 工具自愈
+
+工具不只是被调用——它们会进化。agent 发现工具缺失或静默失败时：
+
+```
+工具挂了 → 读现有代码 → 写缺失函数 → git 提交 → 重试
+```
+
+静默失败是 agent 最隐蔽的坑：工具说"OK"，实际啥也没变。验证系统能抓到这种情况——然后 agent 自己给工具补上验证钩子。整个过程不需要人插手。所有 agent 写的代码都有 git 审计记录，改坏了能回滚。
+
 ### 架构适应度函数
 
 23 个自动化测试，每次 CI 跑。不测"代码能不能编译"——测"架构还在不在"：非集规则有效吗？agent 越权了吗？上下文效率怎样？输出格式合规吗？
@@ -132,6 +146,32 @@ POST_ACTION → 执行后审计结果
 **能力路由** — 按模型×任务类型跟踪成功率。数据库迁移任务 haiku 老挂？自动升级到 sonnet。新任务类型没数据时回退到成本路由。基于 Karpathy 的 Jagged Frontier 理论。
 
 **模式挖掘** — 跨任务分析：同类错误反复出现 → 提规则，同类纠正反复出现 → 提技能，同类失败反复出现 → 提计划模板。Agent 提议，你来决定。
+
+---
+
+## 技能网络
+
+知识不会随着一次任务结束而消失。成功任务会被蒸馏成技能，下次自动复用：
+
+```
+任务成功 → LLM 提取方法 → 存为 Skill → 以后类似任务自动注入
+```
+
+技能像社交网络一样运作：**创建 → 使用 → 评分 → 迭代 → 退役 → 合并**。每次使用带一个 +1/-1 评分和书面理由——理由比评分更重要，因为它准确告诉后面的 agent "到底哪里坏了"。分数跌破 -3 自动退役。雷同技能自动合并，反馈合并计算。保存前 PII 双重门控。
+
+---
+
+## 浏览器自动化
+
+裸 CDP 协议，零框架抽象：
+
+```
+capture_screenshot() → 读像素 → click_at_xy(x, y) → capture_screenshot() → 验证
+```
+
+坐标点击优先。合成器级别的事件穿透 iframe、Shadow DOM、跨域边界。刻意压制 Playwright 的"先定位再点击"肌肉记忆——对视觉模型来说，像素比选择器可靠得多。
+
+后台挂着 CDP 守护进程，LLM 思考期间保持 WebSocket 连接不丢。agent 可以在运行中通过工具自愈系统扩展自己的浏览器能力。
 
 ---
 
@@ -207,9 +247,13 @@ therain2020-agent info config
 | `providers/pool.py` | RAID 1 | 故障转移+熔断 |
 | `providers/router.py` | cpufreq + NUMA | 成本+能力感知路由 |
 | `providers/capability.py` | CPU affinity | 锯齿状能力画像 |
-| `tools/registry.py` | udev | 工具注册和查找 |
-| `tools/executor.py` | execve | 工具执行+凭据注入 |
+| `tools/registry.py` | udev | 工具注册和按对象类型查找 |
+| `tools/executor.py` | execve | 工具执行、凭据注入、验证钩子 |
+| `tools/evolution.py` | kpatch | 运行时工具热修补，git 版本控制 |
+| `tools/editor.py` | ptrace | agent 工具编辑接口 |
 | `tools/supervisor.py` | systemd | MCP 进程管理 |
+| `tools/browser/` | kthread | CDP 守护进程，截图优先，坐标点击 |
+| `skills/` | ld.so.cache | 技能社交网络，PII 门控，自动退役 |
 | `security/` | LSM + keyring | 凭据守卫，prompt 注入防御 |
 
 设计文档 30 篇，方案变体 80+，OS 类比映射 119 个。[飞书知识库](https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651)。
@@ -219,7 +263,7 @@ therain2020-agent info config
 ## 测试
 
 ```bash
-pytest tests/ -v    # 247 个通过，含 23 个架构适应度函数
+pytest tests/ -v    # 302 个通过，含 23 个架构适应度函数
 ```
 
 ---
