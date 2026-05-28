@@ -2,9 +2,9 @@
 
 Usage:
     therain2020 <task>
+    therain2020 --tui
+    therain2020 --repl
     echo <task> | therain2020
-
-References: browser-harness run.py (130 lines).
 """
 
 from __future__ import annotations
@@ -22,11 +22,25 @@ async def main():
     if args and args[0] in ("-h", "--help"):
         print("Usage:")
         print("  therain2020 <task>")
+        print("  therain2020 --tui")
+        print("  therain2020 --repl")
         print("  echo <task> | therain2020")
+        return
+
+    if args and args[0] == "--tui":
+        from .cli.tui import run_tui
+        run_tui()
+        return
+
+    if args and args[0] == "--repl":
+        from .cli.repl import run_repl
+        run_repl()
         return
 
     if not args and sys.stdin.isatty():
         print("Usage: therain2020 <task>")
+        print("       therain2020 --tui     (Textual UI)")
+        print("       therain2020 --repl    (terminal REPL)")
         print("       echo <task> | therain2020")
         sys.exit(1)
 
