@@ -426,6 +426,143 @@ TODO: {task}
             except Exception:
                 pass
 
+    def supports_structured_stream(self) -> bool:
+        """Check if the current provider supports structured (thinking+text) streaming."""
+        return hasattr(self._get_provider(), "complete_stream_structured")
+
+    async def run_stream(self, task_description: str):
+        """Streaming task execution yielding StreamEvent for rich display.
+
+        Uses structured streaming when the provider supports it (thinking+text).
+        Falls back to regular execution with progress callbacks.
+        """
+        from agent.streaming import StreamEvent, StreamEventType
+
+        if self._provider is None:
+            self._provider = self._get_provider()
+
+        max_iterations = self.config["agent"].get("max_loop_iterations", 3)
+        task_id = str(uuid.uuid4())[:8]
+        self._current_episode_id = task_id
+        tools_used: list[str] = []
+        steps_taken = 0
+        start_time = time.time()
+
+        # Analyze TODO
+        analysis = await self._analyze_todo(task_description)
+        acceptance_criteria = analysis.get("acceptance_criteria", [])
+        conversation = ""
+        last_error = ""
+
+        for iteration in range(max_iterations):
+            await self.interrupt.check()
+
+            tools = self.registry.list_all()
+            relevant_objects = list(set(obj for t in tools for obj in t.objects))
+
+            criteria_text = ""
+            if acceptance_criteria:
+                criteria_text = "\n\n验收标准:\n" + "\n".join(f"- {c}" for c in acceptance_criteria)
+
+            role_text = (
+                "你是一个编程助手。逐步执行任务。\n"
+                "使用 <function_call> XML 标签调用工具。\n"
+                "完成所有验收标准后再结束。"
+            )
+
+            prompt = self.prompt_assembler.assemble(PromptInputs(
+                role=role_text,
+                dont_do_rules=self.security.get_constraints_prompt(relevant_objects),
+                tool_summaries=format_tool_summary(tools),
+                task=task_description + criteria_text,
+                conversation_summary="" if iteration == 0 else conversation[-500:],
+                recent_messages=conversation,
+            ))
+
+            # Try structured streaming for thinking/text separation
+            full_response = ""
+            if self.supports_structured_stream():
+                try:
+                    provider = self._get_provider()
+                    stream = provider.complete_stream_structured(prompt, max_tokens=4096)
+                    async for evt_type, content in stream:
+                        if evt_type == "thinking":
+                            yield StreamEvent.thinking(content)
+                        elif evt_type == "text":
+                            yield StreamEvent.text(content)
+                            full_response += content
+                except Exception as e:
+                    yield StreamEvent.error(str(e))
+                    last_error = str(e)
+                    break
+            else:
+                # Fallback: regular complete
+                yield StreamEvent(type=StreamEventType.TEXT, content="")
+                try:
+                    response = await retry(
+                        self._get_provider().complete, prompt, max_tokens=4096,
+                        context={"task_id": task_id, "iteration": iteration + 1},
+                    )
+                    full_response = response.content
+                    yield StreamEvent.text(full_response)
+                except Exception as e:
+                    yield StreamEvent.error(str(e))
+                    last_error = str(e)
+                    break
+
+            conversation += f"\n[Step {iteration + 1}] {full_response[:500]}"
+
+            # Parse tool calls
+            tool_calls = self._parse_tool_calls(full_response)
+            if not tool_calls:
+                break
+
+            for tc in tool_calls:
+                await self.interrupt.check()
+                tool_def = self.registry.get(tc["tool"])
+                if not tool_def:
+                    continue
+
+                obj_type = tool_def.objects[0] if tool_def.objects else "unknown"
+
+                # PRE_ACTION check
+                verdict, msg = self._check_dont_do(HookPoint.PRE_ACTION, {
+                    "object": obj_type, "operation": tc["capability"],
+                    "tool": tc["tool"], "params": tc.get("params", {}),
+                })
+                if verdict == Verdict.REJECT:
+                    continue
+
+                yield StreamEvent.tool_start(tc["tool"], tc["capability"])
+
+                try:
+                    result, verify_result = await self.executor.execute_and_verify(
+                        tool_def, tc["capability"], tc.get("params", {})
+                    )
+                    tools_used.append(f"{tc['tool']}.{tc['capability']}")
+                    steps_taken += 1
+                    ok = verify_result.verified if verify_result else True
+                    yield StreamEvent.tool_result(tc["tool"], tc["capability"], ok=ok)
+                    conversation += f"\n[Result] {str(result)[:200]}"
+                except Exception as e:
+                    yield StreamEvent.tool_result(tc["tool"], tc["capability"], ok=False)
+                    last_error = str(e)
+
+        duration = round(time.time() - start_time, 1)
+        success = not last_error
+
+        # Log episode
+        self.memory.log_episode(EpisodeEntry(
+            task_id=task_id, task_type="todo",
+            task_summary=task_description[:200],
+            tools_used=list(set(tools_used)), steps=steps_taken,
+            success=success, error=last_error,
+            non_set_changes=self._non_set_changes,
+        ))
+
+        yield StreamEvent.done(success, steps_taken, duration,
+                               list(set(tools_used)), last_error)
+
     def _get_provider(self) -> LLMProvider:
         """Get or raise if no provider configured."""
         if self._provider is None:
