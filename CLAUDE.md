@@ -49,25 +49,33 @@
 
 | 模块 | 类比 |
 |------|------|
-| `agent/core.py` | 核心事件循环（TODO 模式 + Goal 模式 reconciliation loop）|
-| `agent/prompt.py` | ELF loader + linker script |
-| `agent/context.py` | MMU + page replacement |
-| `agent/memory.py` | ext4 journal (SQLite WAL) |
-| `agent/tools/registry.py` | udev device database |
-| `agent/tools/executor.py` | execve + kernel module calls |
-| `agent/providers/pool.py` | RAID 1 + multipath I/O |
-| `agent/providers/router.py` | ondemand cpufreq governor |
-| `agent/dont_do.py` | iptables netfilter |
-| `agent/tools/supervisor.py` | systemd |
-| `agent/objects.py` | VFS inode |
-| `agent/role.py` | seccomp profile |
-| `agent/correction.py` | auditd + rule generation |
-| `agent/output_format.py` | syslog format enforcer |
+| `agent/core.py` | Process scheduler — TODO/Goal event loop, dont-do enrichment, capability recording |
+| `agent/objects.py` | VFS inode + xattrs — Ontology object (Data+Logic+Actions+Relations) |
+| `agent/role.py` | seccomp profile — Structured role with constraint/action generation |
+| `agent/dont_do.py` | iptables netfilter — Hook-based rule engine, path-aware context |
+| `agent/correction.py` | auditd + rule gen — User feedback to dont-do rule closed loop |
+| `agent/events.py` | journald — 11 event types for Event Sourcing |
+| `agent/event_store.py` | ext4 journal — Append-only event log, snapshot, in-process pub/sub |
+| `agent/memory.py` | ext4 journal (SQLite WAL) — Episodic + semantic, FTS5 |
+| `agent/consolidation.py` | kswapd + LFS cleaner — LLM-driven episodic→semantic |
+| `agent/pattern_miner.py` | KSM (same-page merging) — Cross-episode pattern discovery |
+| `agent/memory_migrations.py` | Alembic-style — Versioned schema migration |
+| `agent/prompt.py` | ELF loader — Prompt assembly + ontology context injection |
+| `agent/context.py` | MMU + page replacement — LRU context window management |
+| `agent/output_format.py` | syslog format enforcer — Citation rules, progressive disclosure |
+| `agent/providers/pool.py` | RAID 1 + multipath — Provider failover with circuit breaker |
+| `agent/providers/router.py` | ondemand cpufreq + NUMA — Cost + capability-aware routing |
+| `agent/providers/capability.py` | CPU affinity — Jagged Frontier model profiling |
+| `agent/tools/registry.py` | udev — Tool registration, lookup by object type |
+| `agent/tools/executor.py` | execve — Tool execution with credential injection |
+| `agent/tools/supervisor.py` | systemd — MCP process lifecycle management |
+| `agent/tools/adapters/` | filesystem drivers — 9 ecosystem adapters |
+| `agent/security/` | LSM + keyring — Credential guard, prompt injection defense |
 
 ## 常规命令
 
 ```bash
-# 测试
+# 测试 (247 tests)
 pytest tests/ -v
 
 # Lint
