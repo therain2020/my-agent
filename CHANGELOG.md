@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.7.1 (2026-05-28)
+
+### Fixed
+- TUI: footer/input overlap fixed — single docked bottom container
+- TUI: TextArea multi-line input with Enter submit, Ctrl+Enter newline
+- TUI: auto-scroll pauses when user scrolls up, resumes at bottom
+- TUI: streaming response incremental update via ResponseBlock
+
 ## v0.7.0 (2026-05-28)
 
 ### Added
