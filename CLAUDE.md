@@ -44,10 +44,10 @@
 | 文件 | 主题 |
 |------|------|
 | comprehensive-evaluation-plan.md | 多角度综合评估与路线图（10 方向 × 7 维度评估）|
-| improvement-plan-1-2-3-merged.md | 原始改进方案合并版 |
-| improvement-plan-1.md | Phase 1 改进方案（非集集成 + 对象状态记忆）|
-| improvement-plan-2.md | Phase 2 改进方案（角色观察 + 验证改进）|
-| improvement-plan-3.md | Phase 3 改进方案（纠正闭环 + TODO 闭环 + 文献格式）|
+| improvement-plan-1-2-3-merged.md | 完整优化方案合并版（架构差距 + BH 启发 + 最终选型）|
+| improvement-plan-1.md | 原始架构差距分析（一～八：非集/角色/纠正/验证/TODO/记忆/文献）|
+| improvement-plan-2.md | BH 启发优化方案探索（九～十四：自愈/静默检测/压缩/技能/调度/浏览器）|
+| improvement-plan-3.md | 最终实施方案（九-C×十-A 协同 + 4 Phase 代码级设计 + 路线图）|
 
 ## 行为规则
 
