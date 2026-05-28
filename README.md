@@ -182,7 +182,7 @@ Every module maps to a Linux kernel concept:
 | `tools/supervisor.py` | systemd — MCP process lifecycle |
 | `security/` | LSM + keyring — credential guard, prompt injection defense |
 
-30 design documents, 80+ solution variants, 119 OS analogy mappings in `D:\GitHub\agent-design\temp\`.
+30 design documents, 80+ solution variants, 119 OS analogy mappings. [Feishu Wiki](https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651).
 
 ---
 
