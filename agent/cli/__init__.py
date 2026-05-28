@@ -27,18 +27,25 @@ def main(ctx):
       therain2020-agent run "fix the login bug"          # one-shot task
     """
     if ctx.invoked_subcommand is None:
-        # No subcommand → start interactive REPL
-        from .repl import run_repl
-
-        # Check for --provider flag in raw argv
+        # No subcommand → start Textual TUI (or fallback to REPL)
         provider = None
         args = sys.argv[1:]
         for i, arg in enumerate(args):
             if arg in ("--provider", "-p") and i + 1 < len(args):
                 provider = args[i + 1]
                 break
+            if arg in ("--repl", "--no-tui"):
+                from .repl import run_repl
+                run_repl(provider=provider)
+                ctx.exit()
 
-        run_repl(provider=provider)
+        # Try Textual TUI first
+        try:
+            from .tui import run_tui
+            run_tui(provider=provider)
+        except ImportError:
+            from .repl import run_repl
+            run_repl(provider=provider)
         ctx.exit()
 
 
