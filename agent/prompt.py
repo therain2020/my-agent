@@ -22,6 +22,7 @@ class PromptInputs:
     conversation_summary: str = ""
     recent_messages: str = ""
     tool_result: str = ""
+    object_context: str = ""     # Ontology: object state + constraints + relations + actions
 
 
 class PromptAssembler:
@@ -74,6 +75,10 @@ class PromptAssembler:
         # TOOLS — available tools
         if inputs.tool_summaries:
             parts.append(f"<tools>\n{inputs.tool_summaries}\n</tools>")
+
+        # OBJECTS — Ontology context (state + constraints + relations + actions)
+        if inputs.object_context:
+            parts.append(inputs.object_context)
 
         # TASK — what to do
         parts.append(f"<task>\n{inputs.task}\n</task>")

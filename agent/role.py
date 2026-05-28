@@ -8,6 +8,8 @@ Each role declares:
 
 from dataclasses import dataclass, field
 
+from .objects import ObjectAction, ObjectConstraint
+
 
 @dataclass
 class ObjectFocus:
@@ -16,6 +18,32 @@ class ObjectFocus:
     observation: list[str] = field(default_factory=list)    # capability names for reading
     manipulation: list[str] = field(default_factory=list)   # capability names for writing
     dont_do_operations: list[str] = field(default_factory=list)  # blocked operations
+
+    def as_constraints(self) -> list[ObjectConstraint]:
+        """Generate ontology constraints from this focus definition."""
+        constraints = []
+        for op in self.dont_do_operations:
+            constraints.append(ObjectConstraint(
+                description=f"禁止操作: {op}",
+                severity="blocker",
+                source="role",
+            ))
+        return constraints
+
+    def as_actions(self) -> list[ObjectAction]:
+        """Generate ontology actions from this focus definition."""
+        actions = []
+        for cap in self.observation:
+            actions.append(ObjectAction(
+                name=cap, preconditions=[], side_effects=[],
+            ))
+        for cap in self.manipulation:
+            actions.append(ObjectAction(
+                name=cap,
+                preconditions=["目标对象存在且可访问"],
+                side_effects=["修改对象状态"],
+            ))
+        return actions
 
 
 @dataclass
@@ -47,6 +75,16 @@ class Role:
     def get_dont_do_operations(self, object_type: str) -> list[str]:
         focus = self.get_focus(object_type)
         return focus.dont_do_operations if focus else []
+
+    def get_constraints(self, object_type: str) -> list[ObjectConstraint]:
+        """Get ontology constraints for an object type from this role."""
+        focus = self.get_focus(object_type)
+        return focus.as_constraints() if focus else []
+
+    def get_actions(self, object_type: str) -> list[ObjectAction]:
+        """Get ontology actions for an object type from this role."""
+        focus = self.get_focus(object_type)
+        return focus.as_actions() if focus else []
 
 
 # ——— Pre-defined roles ———

@@ -13,6 +13,8 @@ from pathlib import Path
 
 import structlog
 
+from .memory_migrations import MigrationManager
+
 logger = structlog.get_logger()
 
 # ——— Data classes ———
@@ -63,57 +65,14 @@ class MemoryStore:
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.execute("PRAGMA cache_size=-8000")
         self.conn.execute("PRAGMA busy_timeout=5000")
-        self._create_tables()
+        self._migrate()
 
-    def _create_tables(self):
-        self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS episodic (
-                id TEXT PRIMARY KEY,
-                timestamp TEXT NOT NULL,
-                task_type TEXT NOT NULL,
-                task_summary TEXT NOT NULL,
-                tools_used TEXT DEFAULT '[]',
-                steps INTEGER DEFAULT 0,
-                success INTEGER DEFAULT 0,
-                error TEXT DEFAULT '',
-                non_set_changes TEXT DEFAULT '[]',
-                objects_before TEXT DEFAULT '{}',
-                objects_after TEXT DEFAULT '{}',
-                object_changes TEXT DEFAULT '[]',
-                consolidated INTEGER DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS semantic (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL CHECK(type IN ('preference','fact','pattern')),
-                content TEXT NOT NULL,
-                confidence REAL DEFAULT 0.5,
-                source_episodes TEXT DEFAULT '[]',
-                created_at TEXT NOT NULL,
-                last_verified_at TEXT,
-                reference_count INTEGER DEFAULT 0
-            );
-
-            CREATE VIRTUAL TABLE IF NOT EXISTS semantic_fts
-                USING fts5(content, content=semantic, content_rowid=rowid);
-        """)
-        self.conn.commit()
-        self._migrate_schema()
-
-    def _migrate_schema(self):
-        """Incremental schema migration for existing databases."""
-        migrations = [
-            "ALTER TABLE episodic ADD COLUMN objects_before TEXT DEFAULT '{}'",
-            "ALTER TABLE episodic ADD COLUMN objects_after TEXT DEFAULT '{}'",
-            "ALTER TABLE episodic ADD COLUMN object_changes TEXT DEFAULT '[]'",
-        ]
-        for sql in migrations:
-            try:
-                self.conn.execute(sql)
-                self.conn.commit()
-                logger.info("schema_migration", sql=sql[:60])
-            except sqlite3.OperationalError:
-                pass
+    def _migrate(self) -> None:
+        """Apply versioned schema migrations."""
+        mgr = MigrationManager(self.conn)
+        applied = mgr.migrate()
+        if applied:
+            logger.info("schema_migrations_applied", versions=applied)
 
     def close(self):
         self.conn.close()
