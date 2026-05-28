@@ -17,6 +17,7 @@ class Capability:
     danger_level: str = "low"  # low | medium | high | critical
     timeout_ms: int = 30000
     requires_confirmation: bool = False
+    verify: dict | None = None  # {"function": "verify.py:verify_xxx", "auto_generated": true, ...}
 
 
 @dataclass
@@ -76,6 +77,7 @@ def parse_tool_md(path: Path) -> ToolDefinition:
             danger_level=cap_data.get("danger_level", "low"),
             timeout_ms=cap_data.get("timeout_ms", 30000),
             requires_confirmation=cap_data.get("requires_confirmation", False),
+            verify=cap_data.get("verify"),
         ))
 
     return ToolDefinition(
@@ -100,7 +102,7 @@ def generate_tool_md(tool_def: ToolDefinition) -> str:
     """Generate tool.md content from a ToolDefinition."""
     caps = []
     for cap in tool_def.capabilities:
-        caps.append({
+        cap_dict = {
             "name": cap.name,
             "description": cap.description,
             "parameters": cap.parameters,
@@ -109,7 +111,10 @@ def generate_tool_md(tool_def: ToolDefinition) -> str:
             "danger_level": cap.danger_level,
             "timeout_ms": cap.timeout_ms,
             "requires_confirmation": cap.requires_confirmation,
-        })
+        }
+        if cap.verify:
+            cap_dict["verify"] = cap.verify
+        caps.append(cap_dict)
 
     frontmatter = yaml.dump({
         "name": tool_def.name,

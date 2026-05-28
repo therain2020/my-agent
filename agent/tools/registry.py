@@ -96,6 +96,39 @@ class ToolRegistry:
         """List tools from a specific source (builtin/mcp-server/...)."""
         return [t for t in self._tools.values() if t.source == source]
 
+    def reload(self, tool_name: str) -> bool:
+        """Hot-reload a single tool after evolution changes.
+
+        Re-scans the tool's tool.md and re-registers it. Used after
+        ToolEvolutionManager commits a change.
+        """
+        tool_dir = None
+        for scan_path in self._scan_paths:
+            candidate = Path(scan_path) / tool_name / "tool.md"
+            if candidate.exists():
+                tool_dir = candidate
+                break
+        # Also check .generated
+        if tool_dir is None:
+            for scan_path in self._scan_paths:
+                candidate = Path(scan_path) / ".generated" / tool_name / "tool.md"
+                if candidate.exists():
+                    tool_dir = candidate
+                    break
+
+        if tool_dir is None:
+            return False
+
+        try:
+            tool_def = parse_tool_md(tool_dir)
+            self.register(tool_def)
+            logger.info("tool_reloaded", name=tool_name,
+                        capabilities=len(tool_def.capabilities))
+            return True
+        except Exception as e:
+            logger.error("tool_reload_failed", name=tool_name, error=str(e))
+            return False
+
     def summary(self) -> str:
         """Human-readable summary of registered tools."""
         lines = []

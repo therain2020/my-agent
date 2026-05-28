@@ -47,7 +47,9 @@ from .providers.router import CostRouter
 from .retry import retry
 from .role import DEFAULT_ROLE
 from .security import SecurityManager
-from .tools.executor import ToolExecutor
+from .tools.editor import AgentToolEditor
+from .tools.evolution import ToolEvolutionManager
+from .tools.executor import ToolExecutor, VerificationResult
 from .tools.registry import ToolRegistry
 from .tools.supervisor import ImportedToolSupervisor
 
@@ -99,6 +101,13 @@ class Agent:
         # Phase 3: capability routing + pattern mining
         self.router = CostRouter()
         self._pattern_miner: PatternMiner | None = None
+
+        # Phase 4: self-healing tool evolution (九-C + 十-A)
+        self.evolution = ToolEvolutionManager(
+            tools_dir=self.config.get("tools", {}).get("scan_paths", ["./tools"])[0]
+        )
+        self.tool_editor = AgentToolEditor(self.evolution)
+        self._current_episode_id: str = ""
 
     def set_provider(self, provider: LLMProvider, config: ProviderConfig) -> None:
         """Set the LLM provider."""
@@ -417,6 +426,7 @@ TODO: {task}
         last_error = ""
 
         logger.info("task_start", task_id=task_id, task=task_description[:200])
+        self._current_episode_id = task_id
 
         # Phase 3: Analyze TODO for clarity and acceptance criteria
         analysis = await self._analyze_todo(task_description)
@@ -533,7 +543,8 @@ TODO: {task}
                     conversation += f"\n[Warning] {msg}"
 
                 try:
-                    result = await self.executor.execute(
+                    # Phase 4: execute with verification (十-A)
+                    result, verify_result = await self.executor.execute_and_verify(
                         tool_def, tc["capability"], tc.get("params", {})
                     )
                     tools_used.append(f"{tc['tool']}.{tc['capability']}")
@@ -541,6 +552,25 @@ TODO: {task}
 
                     result_str = str(result)[:2000]
                     conversation += f"\n[Result from {tc['tool']}.{tc['capability']}]: {result_str}"
+
+                    # Check verification
+                    if verify_result and not verify_result.verified:
+                        logger.warning("silent_failure_detected",
+                                       tool=tc["tool"], capability=tc["capability"],
+                                       diff=verify_result.diff)
+                        conversation += (
+                            f"\n[VERIFICATION FAILED] {verify_result.expected_effect}\n"
+                            f"Diff: {verify_result.diff}"
+                        )
+                        if verify_result.suggestion:
+                            conversation += f"\nSuggestion: {verify_result.suggestion}"
+                        # Trigger self-healing to fix the verify or tool
+                        healed = await self._handle_verification_failure(
+                            verify_result, tc["tool"], tc["capability"],
+                            tc.get("params", {}), conversation
+                        )
+                        if healed:
+                            conversation += "\n[Self-Healing] Verification fixed, retry suggested"
 
                     # POST_ACTION dont-do check
                     self._check_dont_do(HookPoint.POST_ACTION, {
@@ -555,6 +585,14 @@ TODO: {task}
                 except Exception as e:
                     last_error = str(e)
                     conversation += f"\n[Error] {tc['tool']}.{tc['capability']}: {e}"
+
+                    # Phase 4: attempt self-healing on tool failures
+                    healed = await self._handle_tool_failure(
+                        e, tc["tool"], tc["capability"],
+                        tc.get("params", {}), conversation
+                    )
+                    if healed:
+                        conversation += "\n[Self-Healing] Tool fixed, retry suggested"
 
         # Verify acceptance criteria
         verification = None
@@ -627,6 +665,7 @@ TODO: {task}
         last_error = ""
 
         logger.info("goal_start", task_id=task_id, goal=goal[:200])
+        self._current_episode_id = task_id
         conversation = ""
         self.event_store.append(goal_started(task_id, goal))
 
@@ -1095,6 +1134,214 @@ TODO: {task}
                                             "delete", "remove", "update")):
             return "file_edit"
         return "general"
+
+    # ——— Self-healing tool evolution (九-C + 十-A) ———
+
+    async def _handle_tool_failure(
+        self,
+        error: Exception,
+        tool_name: str,
+        capability_name: str,
+        params: dict,
+        conversation: str,
+    ) -> bool:
+        """Attempt self-healing on tool failure.
+
+        Returns True if healing was applied (caller should retry).
+        """
+        from agent.errors import ToolExecutionError, ToolNotFoundError
+
+        if isinstance(error, ToolNotFoundError):
+            logger.info("self_heal_missing_capability",
+                       tool=tool_name, capability=capability_name)
+            prompt = self._build_healing_prompt(
+                "missing_capability", tool_name, capability_name, params, conversation
+            )
+            try:
+                resp = await self._get_provider().complete(prompt, max_tokens=2000)
+                healing = self._parse_healing_response(resp.content)
+            except Exception:
+                return False
+
+            if healing.get("action") == "write_helper":
+                result = self.tool_editor.add_helper(
+                    tool_name=tool_name,
+                    helper_name=healing["helper_name"],
+                    helper_code=healing["code"],
+                    episode_id=self._current_episode_id,
+                    reason=healing.get("reason", "Auto-generated: missing capability"),
+                )
+                if result["success"]:
+                    self.registry.reload(tool_name)
+                    self.memory.log_evolution_event(
+                        result["record_id"], "create", tool_name,
+                        self._current_episode_id,
+                        f"Auto-heal: added helper {healing['helper_name']}"
+                    )
+                    return True
+
+        elif isinstance(error, ToolExecutionError):
+            # Check if missing verify hook (potential silent failure)
+            tool_def = self.registry.get(tool_name)
+            cap = self.registry.find_capability(tool_name, capability_name) if tool_def else None
+            if cap and not getattr(cap, "verify", None):
+                logger.info("self_heal_missing_verify",
+                           tool=tool_name, capability=capability_name)
+                prompt = self._build_healing_prompt(
+                    "missing_verify", tool_name, capability_name, params, conversation
+                )
+                try:
+                    resp = await self._get_provider().complete(prompt, max_tokens=2000)
+                    healing = self._parse_healing_response(resp.content)
+                except Exception:
+                    return False
+
+                if healing.get("action") == "add_verify":
+                    result = self.tool_editor.add_verify(
+                        tool_name=tool_name,
+                        capability_name=capability_name,
+                        verify_function=healing["code"],
+                        episode_id=self._current_episode_id,
+                        reason=healing.get("reason", "Auto-generated: missing verification"),
+                    )
+                    if result["success"]:
+                        self.registry.reload(tool_name)
+                        self.memory.log_evolution_event(
+                            result["record_id"], "add_verify", tool_name,
+                            self._current_episode_id,
+                            f"Auto-heal: added verify for {capability_name}"
+                        )
+                        return True
+
+        return False
+
+    async def _handle_verification_failure(
+        self,
+        verify_result: VerificationResult,
+        tool_name: str,
+        capability_name: str,
+        params: dict,
+        conversation: str,
+    ) -> bool:
+        """Handle a verification failure. Trigger self-healing to fix the verify hook.
+
+        The verify hook exists but detected a silent failure. The agent can:
+        1. Improve the verify function (if it's inaccurate)
+        2. Accept and proceed (if verify is too strict)
+        """
+        logger.warning("verification_failure_handling",
+                      tool=tool_name, capability=capability_name)
+
+        prompt = self._build_healing_prompt(
+            "fix_verify", tool_name, capability_name, params, conversation,
+            extra_context={
+                "expected_effect": verify_result.expected_effect,
+                "diff": verify_result.diff,
+                "suggestion": verify_result.suggestion or "",
+            },
+        )
+        try:
+            resp = await self._get_provider().complete(prompt, max_tokens=1000)
+            decision = self._parse_healing_response(resp.content)
+        except Exception:
+            return False
+
+        if decision.get("action") == "fix_verify":
+            result = self.tool_editor.add_verify(
+                tool_name=tool_name,
+                capability_name=capability_name,
+                verify_function=decision["code"],
+                episode_id=self._current_episode_id,
+                reason=decision.get("reason", "Fixed inaccurate verify"),
+            )
+            if result["success"]:
+                self.registry.reload(tool_name)
+                self.memory.log_evolution_event(
+                    result["record_id"], "modify", tool_name,
+                    self._current_episode_id,
+                    f"Auto-heal: fixed verify for {capability_name}"
+                )
+                return True
+        elif decision.get("action") == "accept":
+            logger.info("verification_accepted_with_warning",
+                       tool=tool_name, capability=capability_name)
+            return False
+
+        return False
+
+    def _build_healing_prompt(
+        self,
+        issue_type: str,
+        tool_name: str,
+        capability_name: str,
+        params: dict,
+        conversation: str,
+        extra_context: dict | None = None,
+    ) -> str:
+        """Build a prompt for the self-healing LLM call."""
+        if issue_type == "missing_capability":
+            return self.prompt_assembler.assemble(PromptInputs(
+                role=(
+                    "你是工具系统修复专家。代理在执行任务时发现缺少一个工具能力。\n"
+                    "请编写缺失的工具函数（Python）。\n"
+                    '输出 JSON: {"action": "write_helper", "helper_name": "...", '
+                    '"code": "...", "reason": "..."}'
+                ),
+                task=(
+                    f"缺失的能力: {tool_name}.{capability_name}\n"
+                    f"调用参数: {params}\n"
+                    f"最近的对话:\n{conversation[-2000:]}\n\n"
+                    f"编写一个 Python 函数来实现这个缺失的能力。"
+                    f"参考工具目录中现有代码的风格。"
+                ),
+            ))
+        elif issue_type == "missing_verify":
+            return self.prompt_assembler.assemble(PromptInputs(
+                role=(
+                    "你是验证函数编写专家。代理执行工具后无法确认操作是否真正生效（静默失败风险）。\n"
+                    "请为该工具编写一个 verify 函数。\n"
+                    '输出 JSON: {"action": "add_verify", "code": "...", "reason": "..."}'
+                ),
+                task=(
+                    f"工具: {tool_name}.{capability_name}\n"
+                    f"参数: {params}\n"
+                    f"最近的对话:\n{conversation[-2000:]}\n\n"
+                    f"编写一个 verify 函数，接收 (params, result) 参数，判断操作是否真的生效。\n"
+                    f'函数签名: def verify_{capability_name}(**params, result=None) -> dict\n'
+                    f'返回值格式: {{"verified": bool, "expected_effect": str, '
+                    f'"actual_state": dict, "expected_state": dict, "suggestion": str or None}}'
+                ),
+            ))
+        elif issue_type == "fix_verify":
+            extra = extra_context or {}
+            return self.prompt_assembler.assemble(PromptInputs(
+                role=(
+                    "你是验证函数修复专家。现有的 verify 函数检测到操作可能未生效。\n"
+                    "判断 verify 函数是否过于严格（误报），还是确实需要改进。\n"
+                    '输出 JSON: {"action": "fix_verify|accept", "code": "...", "reason": "..."}\n'
+                    '如果 accept，表示当前验证太严格，接受当前状态。'
+                ),
+                task=(
+                    f"工具: {tool_name}.{capability_name}\n"
+                    f"预期效果: {extra.get('expected_effect', '')}\n"
+                    f"状态差异: {extra.get('diff', {})}\n"
+                    f"建议: {extra.get('suggestion', '')}\n"
+                    f"最近对话:\n{conversation[-2000:]}"
+                ),
+            ))
+        return ""
+
+    @staticmethod
+    def _parse_healing_response(response: str) -> dict:
+        """Parse the JSON response from a self-healing LLM call."""
+        import json
+        text = response.strip()
+        if "{" in text and "}" in text:
+            text = text[text.find("{"):text.rfind("}") + 1]
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return {"action": "none", "reason": "Failed to parse LLM response"}
 
     def mine_patterns(self, recent_tasks: int = 100) -> list:
         """Run pattern mining across recent episodes.
