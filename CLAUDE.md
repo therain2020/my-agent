@@ -48,6 +48,7 @@
 | improvement-plan-1.md | 原始架构差距分析（一～八：非集/角色/纠正/验证/TODO/记忆/文献）|
 | improvement-plan-2.md | BH 启发优化方案探索（九～十四：自愈/静默检测/压缩/技能/调度/浏览器）|
 | improvement-plan-3.md | 最终实施方案（九-C×十-A 协同 + 4 Phase 代码级设计 + 路线图）|
+| cli-ux-upgrade-plan.md | CLI UX 升级方案（流式输出 + 思考模式 + Rich 渲染）|
 
 ## 行为规则
 

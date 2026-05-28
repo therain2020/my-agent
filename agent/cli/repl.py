@@ -1,7 +1,8 @@
-"""Interactive REPL — conversation-style agent UX like Claude Code.
+"""Interactive REPL — Claude Code-style streaming UX with thinking mode.
 
 Keeps the agent alive across turns. Each user message continues
 the same session with full context: memory, skills, tool evolution.
+Streaming output with rich formatting, thinking blocks, and progress.
 """
 
 from __future__ import annotations
@@ -12,39 +13,36 @@ from pathlib import Path
 
 import click
 
+from agent.cli.display import StreamingDisplay, dim, red, yellow
 from agent.core import Agent
+from agent.streaming import StreamEventType
 from agent.tools.adapters.browser_harness import BrowserHarnessAdapter
 
-# ── terminal helpers ──
+# ── styling (delegates to rich display) ──
 
+def _bold(t: str) -> str:
+    return click.style(t, bold=True)
 
-def _dim(text: str) -> str:
-    return click.style(text, dim=True)
+def _hint(t: str) -> str:
+    return click.style(t, fg="cyan")
 
+def _warn(t: str) -> str:
+    return click.style(t, fg="yellow")
 
-def _bold(text: str) -> str:
-    return click.style(text, bold=True)
+def _err(t: str) -> str:
+    return click.style(t, fg="red")
 
+def _ok(t: str) -> str:
+    return click.style(t, fg="green")
 
-def _ok(text: str) -> str:
-    return click.style(text, fg="green")
-
-
-def _warn(text: str) -> str:
-    return click.style(text, fg="yellow")
-
-
-def _err(text: str) -> str:
-    return click.style(text, fg="red")
-
-
-def _hint(text: str) -> str:
-    return click.style(text, fg="cyan")
+def _dim(t: str) -> str:
+    return click.style(t, dim=True)
 
 
 LOGO = r"""
   {} v{}
   Type /help for commands, Ctrl+C or /exit to quit.
+  Ctrl+T to toggle thinking display.
 """.format(
     _bold("therain2020-agent"),
     "0.6.1",
@@ -59,6 +57,10 @@ HELP_TEXT = f"""
   {_hint("/history")}    Show recent episode history
   {_hint("/skills")}     Show learned skills
   {_hint("/exit")}       Exit (Ctrl+C or Ctrl+D also works)
+
+{_bold("Keyboard")}
+  {_hint("Ctrl+T")}      Toggle thinking display (show/hide model reasoning)
+  {_hint("Ctrl+C")}      Interrupt current task or exit
 
 {_bold("Tips")}
   Just type your task — the agent figures out how to do it.
@@ -128,13 +130,67 @@ class AgentRepl:
             return None
 
     async def _execute(self, task: str) -> None:
-        """Execute a user task turn with streaming progress."""
+        """Execute a user task turn with rich streaming display."""
         click.echo()
 
         mode = self._mode
         if mode == "auto":
             mode = "goal" if len(task) > 30 else "todo"
 
+        # Phase 1: try structured streaming (thinking mode)
+        if self.agent.supports_structured_stream() and mode != "goal":
+            await self._execute_streaming(task)
+            return
+
+        # Fallback: legacy execution
+        await self._execute_legacy(task, mode)
+
+    async def _execute_streaming(self, task: str) -> None:
+        """Streaming execution with rich display and thinking support."""
+        display = StreamingDisplay()
+        start = time.time()
+        result_info = {"success": False, "steps": 0, "tools_used": [], "error": ""}
+
+        try:
+            with display.run():
+                async for event in self.agent.run_stream(task):
+                    if event.type == StreamEventType.THINKING:
+                        display.on_thinking(event.content)
+                    elif event.type == StreamEventType.TEXT:
+                        display.on_text(event.content)
+                    elif event.type == StreamEventType.TOOL_START:
+                        display.on_tool_start(event.tool_name, event.capability)
+                    elif event.type == StreamEventType.TOOL_RESULT:
+                        display.on_tool_result(event.tool_name, event.capability, event.ok)
+                    elif event.type == StreamEventType.ERROR:
+                        display.on_error(event.content)
+                    elif event.type == StreamEventType.DONE:
+                        display.on_done(
+                            event.success, event.steps, event.duration,
+                            event.tools_used, event.error_msg,
+                        )
+                        result_info = {
+                            "success": event.success,
+                            "steps": event.steps,
+                            "tools_used": event.tools_used,
+                            "error": event.error_msg,
+                        }
+        except KeyboardInterrupt:
+            click.echo(yellow("\nInterrupted."))
+            return
+        except Exception as e:
+            click.echo(red(f"\nError: {e}"))
+            return
+
+        self.conversation.append({
+            "role": "user",
+            "content": task[:200],
+            "tools": result_info["tools_used"],
+            "duration": round(time.time() - start, 1),
+        })
+
+    async def _execute_legacy(self, task: str, mode: str) -> None:
+        """Fallback execution using legacy run() with progress callbacks."""
         start = time.time()
         self._thinking_printed = False
 
@@ -146,7 +202,7 @@ class AgentRepl:
                     self._thinking_printed = True
             elif etype == "tool_start":
                 if self._thinking_printed:
-                    click.echo("")  # end the "Thinking..." line
+                    click.echo("")
                     self._thinking_printed = False
                 click.echo(
                     f"  {_dim('→')} {_hint(event['tool'])}.{event['capability']}  ",
@@ -156,9 +212,6 @@ class AgentRepl:
                 ok = event.get("ok", True)
                 mark = _ok("✓") if ok else _warn("⚠")
                 click.echo(mark)
-            elif etype == "done":
-                if self._thinking_printed:
-                    click.echo("")
 
         self.agent.set_progress_callback(on_progress)
 
@@ -168,10 +221,10 @@ class AgentRepl:
             else:
                 result = await self.agent.run(task)
         except KeyboardInterrupt:
-            click.echo(_warn("\nInterrupted."))
+            click.echo(yellow("\nInterrupted."))
             return
         except Exception as e:
-            click.echo(_err(f"\nError: {e}"))
+            click.echo(red(f"\nError: {e}"))
             return
         finally:
             self.agent.set_progress_callback(None)
@@ -184,11 +237,9 @@ class AgentRepl:
             "duration": duration,
         })
 
-        # Print result
         click.echo()
         if result["success"]:
-            summary = _ok("[OK]") + f" {result['steps']} steps in {duration}s"
-            click.echo(summary)
+            click.echo(_ok("[OK]") + f" {result['steps']} steps in {duration}s")
         else:
             click.echo(_err("[FAILED]") + f" {result.get('error', 'unknown')}")
         if result.get("tools_used"):
@@ -252,6 +303,12 @@ class AgentRepl:
                     click.echo(f"  {_hint(s.name):30s} {rating}  uses={s.uses}  score={s.score}")
             except Exception:
                 click.echo(_dim("Skill repository not available."))
+
+        elif parts[0] == "/think":
+            if hasattr(self, "_display") and self._display:
+                self._display.toggle_thinking()
+            else:
+                click.echo(dim("Thinking display is active during task execution."))
 
         elif parts[0] in ("/exit", "/quit"):
             self._running = False

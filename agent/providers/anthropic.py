@@ -89,6 +89,30 @@ class AnthropicProvider:
             logger.error("anthropic_stream_error", error=str(e))
             raise self._classify_error(e) from e
 
+    async def complete_stream_structured(
+        self, prompt: str, **kwargs
+    ) -> AsyncIterator[tuple[str, str]]:  # (event_type, content)
+        """Stream with thinking/text separation. Yields ('thinking', text) or ('text', text)."""
+        max_tokens = kwargs.pop("max_tokens", 4096)
+        try:
+            async with self._client.messages.stream(
+                model=self._model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                **kwargs,
+            ) as stream:
+                async for event in stream:
+                    if event.type == "content_block_delta":
+                        delta = event.delta
+                        if hasattr(delta, "type"):
+                            if delta.type == "thinking_delta":
+                                yield ("thinking", delta.thinking)
+                            elif delta.type == "text_delta":
+                                yield ("text", delta.text)
+        except Exception as e:
+            logger.error("anthropic_stream_error", error=str(e))
+            raise self._classify_error(e) from e
+
     def _classify_error(self, error: Exception) -> Exception:
         import httpx
 

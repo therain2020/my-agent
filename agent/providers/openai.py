@@ -102,6 +102,34 @@ class OpenAIProvider:
             logger.error("openai_stream_error", error=str(e))
             raise self._classify_error(e) from e
 
+    async def complete_stream_structured(
+        self, prompt: str, **kwargs
+    ) -> AsyncIterator[tuple[str, str]]:  # (event_type, content)
+        """Stream with thinking/text separation. DeepSeek sends reasoning_content."""
+        max_tokens = kwargs.pop("max_tokens", 4096)
+        try:
+            stream = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                stream=True,
+                **kwargs,
+            )
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                # DeepSeek sends reasoning_content for thinking
+                reasoning = getattr(delta, "reasoning_content", None) or ""
+                text = delta.content or ""
+                if reasoning:
+                    yield ("thinking", reasoning)
+                if text:
+                    yield ("text", text)
+        except Exception as e:
+            logger.error("openai_stream_error", error=str(e))
+            raise self._classify_error(e) from e
+
     def _classify_error(self, error: Exception) -> Exception:
         import httpx
 
