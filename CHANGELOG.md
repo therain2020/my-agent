@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.1 (2026-05-28)
+
+### Changed
+- Design docs migrated to Feishu Wiki (all local path references updated)
+- Release verification now uses Python urllib instead of curl (Windows compat)
+- CLAUDE.md architecture table fully updated with Phase 1-3 modules
+
+### Added
+- `update-docs` skill — bilingual README independent-writing rule encoded
+- Troubleshooting knowledge base (12 entries) covering PowerShell, lark-cli, Python, and agent bugs
+
 ## v0.4.0 (2026-05-28)
 
 Phase 1-3: Quality infrastructure, Event Sourcing, and Intelligence. 247 tests.
