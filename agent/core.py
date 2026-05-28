@@ -8,7 +8,7 @@ from pathlib import Path
 
 import structlog
 
-from .config import load_config
+from .config import AppConfig, load_config
 from .consolidation import ConsolidationDaemon
 from .correction import (
     Correction,
@@ -20,7 +20,7 @@ from .dont_do import DontDoEngine, HookPoint, Verdict
 from .errors import InterruptSignal
 from .interrupt import InterruptHandler
 from .memory import EpisodeEntry, EpisodicMemory
-from .objects import AgentObject, ObjectState, extract_state_properties
+from .objects import AgentObject, ObjectState, build_object_context, extract_state_properties
 from .output_format import OutputFormatManager
 from .prompt import (
     PromptAssembler,
@@ -796,6 +796,8 @@ TODO: {task}
                     ),
                     observation_tools=obs_caps,
                     manipulation_tools=self.role.get_manipulation_tools(obj_type),
+                    constraints=self.role.get_constraints(obj_type),
+                    available_actions=self.role.get_actions(obj_type),
                 )
 
         self._observed_objects = objects
@@ -818,14 +820,18 @@ TODO: {task}
         if not relevant_tools:
             relevant_tools = self.registry.list_all()[:10]
 
+        object_context = build_object_context(self._observed_objects)
+
         prompt = self.prompt_assembler.assemble(PromptInputs(
             role=(
-                "基于观察结果，使用可用工具为目标制定执行计划。"
+                "基于观察结果和对象上下文，使用可用工具为目标制定执行计划。"
+                "注意每个对象的约束(Constraints)和可用操作(Actions)。"
                 "输出 JSON 格式的计划数组，每步包含 action, tool, object 和 verify。"
                 "如果不可自动验证，设置 verify: 'manual'。"
                 "不要在 JSON 之外输出任何内容。"
             ),
             tool_summaries=format_tool_summary(relevant_tools),
+            object_context=object_context,
             task=(
                 f"目标: {goal}\n\n"
                 f"观察结果:\n{observation}"
@@ -941,3 +947,63 @@ TODO: {task}
             logger.info("no_tool_calls_in_response", response_preview=response[:200])
 
         return results
+
+
+# ——— Agent factory ———
+
+
+def create_agent(
+    config: AppConfig | None = None,
+    config_path: Path | None = None,
+    provider: "LLMProvider | None" = None,
+    provider_config: "ProviderConfig | None" = None,
+    memory_path: str | None = None,
+) -> Agent:
+    """Create and set up an Agent instance — the injectable factory.
+
+    Args:
+        config: Typed AppConfig (preferred over config_path).
+        config_path: Path to config.yaml (legacy, use config= instead).
+        provider: Pre-configured LLM provider for testing.
+        provider_config: Provider configuration.
+        memory_path: Override memory DB path (use ':memory:' for tests).
+
+    Returns:
+        A fully set up Agent, ready to run.
+
+    Example:
+        # Production
+        agent = create_agent(config=AppConfig.from_yaml())
+
+        # Testing
+        agent = create_agent(config=AppConfig.test(), memory_path=":memory:")
+    """
+    if config is None:
+        config = AppConfig.from_yaml(config_path)
+
+    agent = Agent()
+    agent.config = {
+        "agent": {
+            "name": config.agent.name,
+            "max_loop_iterations": config.agent.max_loop_iterations,
+        },
+        "llm": {"providers": config.llm.providers},
+        "memory": {"path": memory_path or config.memory.path},
+        "tools": {
+            "scan_paths": config.tools.scan_paths,
+            "default_timeout_ms": config.tools.default_timeout_ms,
+        },
+        "security": {"dont_do_paths": config.security.dont_do_paths},
+    }
+
+    # Re-initialize memory with possibly overridden path
+    if memory_path:
+        agent.memory = EpisodicMemory(memory_path)
+
+    if provider:
+        agent.set_provider(provider, provider_config or ProviderConfig(
+            name=provider.name, model=provider.model
+        ))
+
+    agent.setup()
+    return agent

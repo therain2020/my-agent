@@ -126,3 +126,84 @@ class FatalError(AgentError):
 class CircuitBreakerOpenError(AgentError):
     """Circuit breaker is open, request rejected."""
     pass
+
+
+# ——— Centralized exception handler ———
+
+
+def format_error_for_llm(error: Exception, sanitize: bool = True) -> str:
+    """Convert an agent exception into a message safe for LLM consumption.
+
+    Three-layer pattern (from layered-exception-handling.md):
+    1. Raise layer: code raises typed AgentError subclasses
+    2. Catch layer: this function translates to LLM-friendly messages
+    3. Sanitize layer: removes internal paths, stack traces, sensitive info
+
+    Args:
+        error: The caught exception.
+        sanitize: If True, strip internal details before returning.
+
+    Returns:
+        A string suitable for appending to the agent's conversation.
+    """
+    if isinstance(error, DontDoViolation):
+        return f"[Blocked] Rule {error.rule_id}: {_sanitize(str(error), sanitize)}"
+
+    if isinstance(error, ToolExecutionError):
+        msg = f"[Tool Error] {error.tool_name} (exit {error.exit_code})"
+        if error.stderr and not sanitize:
+            msg += f": {error.stderr[:200]}"
+        return msg
+
+    if isinstance(error, ToolTimeoutError):
+        return f"[Timeout] {error.tool_name} exceeded {error.timeout}s"
+
+    if isinstance(error, ToolNotFoundError):
+        return f"[Not Found] {_sanitize(str(error), sanitize)}"
+
+    if isinstance(error, ToolAccessDenied):
+        return f"[Access Denied] {_sanitize(str(error), sanitize)}"
+
+    if isinstance(error, ProviderAuthError):
+        return "[Provider Error] Authentication failed — check API key"
+
+    if isinstance(error, ProviderRateLimitError):
+        return "[Provider Error] Rate limit reached — retry after delay"
+
+    if isinstance(error, ProviderTimeoutError):
+        return "[Provider Error] Request timed out — retrying"
+
+    if isinstance(error, ProviderServerError):
+        return "[Provider Error] Server error — will retry"
+
+    if isinstance(error, ProviderError):
+        return f"[Provider Error] {_sanitize(str(error), sanitize)}"
+
+    if isinstance(error, LoopExhaustedError):
+        return (
+            f"[Exhausted] Task {error.task_id} did not complete "
+            f"within {error.iterations} iterations"
+        )
+
+    if isinstance(error, InterruptSignal):
+        return "[Interrupted] Task cancelled by user"
+
+    if isinstance(error, AgentError):
+        return f"[Error] {_sanitize(str(error), sanitize)}"
+
+    # Unknown exception — sanitize aggressively
+    if sanitize:
+        return f"[Error] {type(error).__name__}"
+    return f"[Error] {type(error).__name__}: {str(error)[:200]}"
+
+
+def _sanitize(text: str, enabled: bool) -> str:
+    """Remove sensitive/internal details from error text."""
+    if not enabled:
+        return text
+    # Replace file paths with basename
+    import re
+    text = re.sub(r'[A-Za-z]:\\[^\s,;:"]+\\', '.../', text)
+    text = re.sub(r'/[^\s,;:"]+/', '.../', text)
+    return text[:300]
+
