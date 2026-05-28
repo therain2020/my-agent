@@ -1,21 +1,19 @@
-"""Textual TUI app — Claude Code-style terminal interface.
+"""Textual TUI — Claude Code-style terminal interface.
 
-Layout:
-  ┌─ Header ──────────────────────────────┐
-  │  therain2020-agent v0.7.0  session:abc │
-  ├─ Transcript ──────────────────────────┤
-  │  > user message                        │
-  │  ┌ Thinking ──────────────────────┐    │
-  │  │ model reasoning...             │    │
-  │  └────────────────────────────────┘    │
-  │  → tool.cap ✓                         │
-  │  ## Response markdown                  │
-  │  [OK] 3 steps in 8.2s                 │
-  ├─ Input ───────────────────────────────┤
-  │  > _                                   │
-  ├─ Footer ──────────────────────────────┤
-  │  deepseek-chat | /help | Ctrl+C exit  │
-  └────────────────────────────────────────┘
+Layout (CSS grid):
+  ┌─ Header ──────────────────────────┐
+  │  therain2020-agent  model:xxx      │
+  ├─ Transcript (scrollable) ─────────┤
+  │  > user message                    │
+  │  ┌ Thinking ──────────────────┐    │
+  │  │ reasoning...               │    │
+  │  └────────────────────────────┘    │
+  │  → tool.cap ✓                     │
+  │  Response markdown                 │
+  ├─ Bottom ──────────────────────────┤
+  │  > _                               │  ← TextArea input
+  │  model | Ctrl+T:think | /help      │  ← status line
+  └────────────────────────────────────┘
 """
 
 from __future__ import annotations
@@ -28,7 +26,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, VerticalScroll
 from textual.reactive import reactive
-from textual.widgets import Header, Input, Markdown, Static
+from textual.widgets import Header, Markdown, Static, TextArea
 
 from agent.core import Agent
 from agent.streaming import StreamEventType
@@ -36,45 +34,43 @@ from agent.tools.adapters.browser_harness import BrowserHarnessAdapter
 
 
 class ThinkingBlock(Static):
-    """A collapsible thinking/reasoning block."""
+    """Collapsible thinking block. Ctrl+T to toggle."""
 
     expanded = reactive(True)
 
     def __init__(self):
-        super().__init__("", classes="thinking-block")
-        self._content = ""
+        super().__init__("", classes="think")
+        self._text = ""
 
-    def append(self, text: str) -> None:
-        self._content += text
-        self._refresh()
+    def feed(self, chunk: str) -> None:
+        self._text += chunk
+        self._redraw()
 
     def toggle(self) -> None:
         self.expanded = not self.expanded
-        self._refresh()
+        self._redraw()
 
-    def _refresh(self) -> None:
+    def _redraw(self) -> None:
         if self.expanded:
-            lines = ["┌─ Thinking ─".ljust(50, "─") + "┐"]
-            for line in self._content.split("\n")[-20:]:
-                lines.append(f"│ {line[:94]}".ljust(99) + "│")
-            lines.append("└".ljust(50, "─") + "┘")
+            w = self.size.width - 4 if self.size.width > 10 else 76
+            box_w = min(w, 80)
+            lines = ["┌─ Thinking " + "─" * (box_w - 12) + "┐"]
+            for line in self._text.split("\n")[-20:]:
+                line = line[:box_w - 2]
+                lines.append(f"│ {line}".ljust(box_w + 1) + "│")
+            lines.append("└" + "─" * (box_w - 1) + "┘")
             self.update("\n".join(lines))
         else:
-            n = len(self._content)
-            self.update(f"· Thinking... ({n} chars)  [dim]Ctrl+T to expand[/]")
+            n = len(self._text)
+            self.update(f"  · Thinking... ({n} chars)  [dim]Ctrl+T to expand[/]")
 
 
-class ToolLine(Static):
-    """A single tool call line with status."""
+class ResponseBlock(Markdown):
+    """A markdown response block with raw text tracking."""
 
-    def __init__(self, name: str, cap: str):
-        self.tool_name = name
-        self.tool_cap = cap
-        super().__init__(f"  → [cyan]{name}[/].[bold]{cap}[/]  ", classes="tool-line")
-
-    def done(self, ok: bool = True) -> None:
-        mark = "[green]✓[/]" if ok else "[yellow]⚠[/]"
-        self.update(f"  → [cyan]{self.tool_name}[/].[bold]{self.tool_cap}[/]  {mark}")
+    def __init__(self, text: str = ""):
+        super().__init__(text or " ", classes="resp")
+        self.raw_text = text
 
 
 class AgentTui(App):
@@ -84,52 +80,48 @@ class AgentTui(App):
     #transcript {
         overflow-y: auto;
         padding: 1 2;
-        scrollbar-size: 1 0;
     }
-
-    .thinking-block {
+    .think {
         color: grey;
-        margin: 1 2;
+        margin: 1 0;
+        height: auto;
+    }
+    .tool {
+        color: grey;
+        height: 1;
+        padding: 0 2;
+    }
+    .resp {
+        margin: 1 0;
+    }
+    #bottom {
+        dock: bottom;
+        height: auto;
+        max-height: 30%;
+        background: $surface;
+        border-top: solid $primary-darken-3;
+    }
+    #prompt {
         height: auto;
         min-height: 3;
-    }
-
-    .tool-line {
-        color: grey;
-        padding: 0 2;
-        height: 1;
-    }
-
-    .response {
-        margin-top: 1;
-        padding: 0 2;
-    }
-
-    #input-area {
-        dock: bottom;
-        height: 3;
+        max-height: 12;
         padding: 0 1;
-        border-top: solid grey;
+        border: none;
     }
-
-    #prompt-input {
-        width: 100%;
-    }
-
-    #footer-bar {
-        dock: bottom;
+    #status {
         height: 1;
-        color: grey;
         padding: 0 1;
+        color: $text-disabled;
     }
     """
 
     BINDINGS = [
-        Binding("ctrl+t", "toggle_thinking", "Toggle thinking"),
+        Binding("ctrl+t", "toggle_thinking", "Think"),
         Binding("ctrl+c", "quit", "Exit"),
-        Binding("escape", "clear_input", "Clear"),
-        Binding("up", "history_up", "History ↑", show=False),
-        Binding("down", "history_down", "History ↓", show=False),
+        Binding("enter", "submit", "Send", priority=True),
+        Binding("ctrl+enter", "newline", "Newline", show=False),
+        Binding("up", "history_up", "Hist↑", show=False, priority=True),
+        Binding("down", "history_down", "Hist↓", show=False, priority=True),
     ]
 
     def __init__(self, provider=None):
@@ -137,246 +129,222 @@ class AgentTui(App):
         self._provider_arg = provider
         self._agent: Agent | None = None
         self._history: list[str] = []
-        self._history_idx: int = -1
-        self._thinking_block: ThinkingBlock | None = None
-        self._tool_lines: list[ToolLine] = []
-        self._running = False
+        self._hpos: int = -1
+        self._think: ThinkingBlock | None = None
+        self._resp: ResponseBlock | None = None
+        self._tools: list[Static] = []
+        self._busy = False
+        self._auto_scroll = True
+        self._model = "none"
 
     def compose(self) -> ComposeResult:
-        """Build the layout."""
         yield Header(show_clock=False)
         yield VerticalScroll(id="transcript")
-        with Container(id="input-area"):
-            yield Input(placeholder="Type a task or /help for commands...", id="prompt-input")
-        yield Static(id="footer-bar")
+        with Container(id="bottom"):
+            yield TextArea(id="prompt")
+            yield Static(id="status")
 
     def on_mount(self) -> None:
-        """Initialize agent and show welcome."""
         self.query_one(Header).tall = False
 
-        # Setup agent
-        data_dir = Path.home() / ".therain2020-agent"
+        # Dirs
+        d = Path.home() / ".therain2020-agent"
         for sub in ["memory", "tools", "tools/.generated", "dont-do"]:
-            (data_dir / sub).mkdir(parents=True, exist_ok=True)
+            (d / sub).mkdir(parents=True, exist_ok=True)
 
         self._agent = Agent()
         self._agent.setup()
 
-        # Auto-detect provider
         from agent.cli.autodetect import detect_from_env
-        detected, config, source = detect_from_env()
-        if detected:
-            self._agent.set_provider(detected, config)
-            model = config.model if config else "unknown"
+        prov, cfg, src = detect_from_env()
+        if prov:
+            self._agent.set_provider(prov, cfg)
+            self._model = cfg.model if cfg else "?"
         else:
-            model = "none"
+            self._model = "none"
 
-        # Register browser tools
         try:
             BrowserHarnessAdapter(self._agent.registry).register()
         except Exception:
             pass
 
-        # Header
         self.title = "therain2020-agent"
-        self.sub_title = f"v0.7.0  model:[cyan]{model}[/]  session:{self._agent.session_id}"
+        self.sub_title = f"v0.7.1  [{self._model}]"
 
-        # Footer
-        self.query_one("#footer-bar", Static).update(
-            " [dim]Ctrl+T:thinking[/] | [dim]↑↓:history[/] | "
-            "[dim]/help[/] | [dim]Ctrl+C:exit[/]"
-        )
+        self._set_status(f"[dim]{self._model}[/] | Ctrl+T:think | /help | Ctrl+C:exit")
 
-        # Welcome
-        self._add_to_transcript(
-            "[bold]therain2020-agent[/] [dim]v0.7.0[/]\n"
-            f"Model: [cyan]{model}[/] [dim]({source})[/]\n"
-            "Type a task or [dim]/help[/] for commands.\n"
-        )
+        self._echo(f"[bold]therain2020-agent[/] v0.7.1 — {self._model} ({src})")
+        self._echo("[dim]Type a task or /help.[/]")
+        self.query_one("#prompt", TextArea).focus()
 
-        # Focus input
-        self.query_one("#prompt-input", Input).focus()
+    # ── transcript helpers ──
 
-    # ── Input handling ──
+    def _echo(self, text: str) -> None:
+        w = Static(text)
+        self.query_one("#transcript", VerticalScroll).mount(w)
+        if self._auto_scroll:
+            w.scroll_visible()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Handle user input submission."""
-        text = event.value.strip()
-        if not text:
+    def _mount(self, widget) -> None:
+        self.query_one("#transcript", VerticalScroll).mount(widget)
+        if self._auto_scroll:
+            widget.scroll_visible()
+
+    def _set_status(self, text: str) -> None:
+        self.query_one("#status", Static).update(text)
+
+    # ── scroll tracking ──
+
+    def on_vertical_scroll_scrolled(self, event) -> None:
+        vs = self.query_one("#transcript", VerticalScroll)
+        at_bottom = vs.scroll_offset.y >= (vs.max_scroll_y - 3) if vs.max_scroll_y > 0 else True
+        self._auto_scroll = at_bottom
+
+    # ── input ──
+
+    def action_newline(self) -> None:
+        """Insert a newline (Ctrl+Enter)."""
+        ta = self.query_one("#prompt", TextArea)
+        ta.insert("\n")
+
+    def action_submit(self) -> None:
+        ta = self.query_one("#prompt", TextArea)
+        text = ta.text.strip()
+        if not text or self._busy:
             return
+        ta.clear()
 
-        # Save to history
         if not self._history or self._history[-1] != text:
             self._history.append(text)
-        self._history_idx = len(self._history)
+        self._hpos = len(self._history)
 
-        # Slash commands
         if text.startswith("/"):
-            self._handle_slash(text)
-            event.input.clear()
+            self._slash(text)
             return
 
-        # Prevent double-submit
-        if self._running:
-            return
-
-        # Show user message and execute
-        self._add_to_transcript(f"\n[bold]> {text}[/]")
-        self._run_task(text)
-        event.input.clear()
-
-    def action_clear_input(self) -> None:
-        self.query_one("#prompt-input", Input).clear()
+        self._echo(f"\n[bold]> {text}[/]")
+        self._run(text)
 
     def action_history_up(self) -> None:
         if not self._history:
             return
-        inp = self.query_one("#prompt-input", Input)
-        if self._history_idx == len(self._history):
-            self._history_idx = len(self._history) - 1
-        elif self._history_idx > 0:
-            self._history_idx -= 1
-        inp.value = self._history[self._history_idx]
-        inp.action_end()
+        ta = self.query_one("#prompt", TextArea)
+        if self._hpos == len(self._history):
+            self._hpos = len(self._history) - 1
+        elif self._hpos > 0:
+            self._hpos -= 1
+        ta.text = self._history[self._hpos]
 
     def action_history_down(self) -> None:
-        inp = self.query_one("#prompt-input", Input)
-        if self._history_idx < len(self._history) - 1:
-            self._history_idx += 1
-            inp.value = self._history[self._history_idx]
+        ta = self.query_one("#prompt", TextArea)
+        if self._hpos < len(self._history) - 1:
+            self._hpos += 1
+            ta.text = self._history[self._hpos]
         else:
-            self._history_idx = len(self._history)
-            inp.value = ""
-        inp.action_end()
+            self._hpos = len(self._history)
+            ta.text = ""
 
-    # ── Slash commands ──
+    # ── slash ──
 
-    def _handle_slash(self, text: str) -> None:
-        cmd = text.strip().lower()
-        parts = cmd.split()
-
-        if parts[0] == "/help":
-            self._add_to_transcript(
-                "[dim]── Commands ──[/]\n"
-                "[/help clear tools mode history skills think exit]\n"
-                "[dim]── Keys ──[/]\n"
-                "[dim]Ctrl+T toggle thinking | ↑↓ history | Ctrl+C exit[/]"
-            )
-        elif parts[0] == "/clear":
+    def _slash(self, text: str) -> None:
+        parts = text.strip().lower().split()
+        cmd = parts[0]
+        if cmd == "/help":
+            self._echo("[dim]/help /clear /tools /skills /think /exit[/]")
+        elif cmd == "/clear":
             self.query_one("#transcript", VerticalScroll).remove_children()
-        elif parts[0] == "/tools":
+        elif cmd == "/tools":
             tools = self._agent.registry.list_all()
-            lines = ["[dim]── Tools ──[/]"]
             for t in sorted(tools, key=lambda x: x.name):
                 caps = ", ".join(c.name for c in t.capabilities)
-                lines.append(f"  [cyan]{t.name}[/] [dim]{caps}[/]")
-            self._add_to_transcript("\n".join(lines))
-        elif parts[0] == "/skills":
+                self._echo(f"  {t.name} [dim]{caps}[/]")
+        elif cmd == "/skills":
             try:
                 skills = self._agent.skill_repo.get_active(limit=20)
-                if not skills:
-                    self._add_to_transcript("[dim]No skills yet.[/]")
-                else:
-                    lines = ["[dim]── Skills ──[/]"]
-                    for s in skills:
-                        lines.append(f"  [cyan]{s.name}[/] [dim]uses={s.uses} score={s.score}[/]")
-                    self._add_to_transcript("\n".join(lines))
+                for s in skills:
+                    self._echo(f"  {s.name} [dim]×{s.uses} score={s.score}[/]")
             except Exception:
-                self._add_to_transcript("[dim]Skills not available.[/]")
-        elif parts[0] == "/exit":
+                self._echo("[dim]Skills unavailable.[/]")
+        elif cmd == "/think":
+            if self._think:
+                self._think.toggle()
+        elif cmd == "/exit":
             self.exit()
         else:
-            self._add_to_transcript(f"[dim]Unknown: {cmd}. Type /help.[/]")
+            self._echo(f"[dim]Unknown: {cmd}. Type /help.[/]")
 
-    # ── Task execution ──
+    # ── task runner ──
 
     @work(thread=False, exclusive=True)
-    async def _run_task(self, task: str) -> None:
-        """Execute a task as a Textual worker (keeps UI responsive)."""
-        self._running = True
-        self._thinking_block = None
-        self._tool_lines = []
-        start = time.time()
+    async def _run(self, task: str) -> None:
+        self._busy = True
+        self._think = None
+        self._resp = None
+        self._tools.clear()
+        self._set_status(f"[dim]{self._model}[/] | [yellow]Thinking...[/]")
+        t0 = time.time()
 
         try:
             if self._agent.supports_structured_stream():
-                async for event in self._agent.run_stream(task):
-                    if event.type == StreamEventType.THINKING:
-                        self._on_stream_thinking(event.content)
-                    elif event.type == StreamEventType.TEXT:
-                        self._on_stream_text(event.content)
-                    elif event.type == StreamEventType.TOOL_START:
-                        self._on_stream_tool_start(event.tool_name, event.capability)
-                    elif event.type == StreamEventType.TOOL_RESULT:
-                        self._on_stream_tool_result(event.tool_name, event.capability, event.ok)
-                    elif event.type == StreamEventType.ERROR:
-                        self._add_to_transcript(f"[red]Error: {event.content}[/]")
-                    elif event.type == StreamEventType.DONE:
-                        duration = round(time.time() - start, 1)
-                        if event.success:
-                            self._add_to_transcript(
-                                f"\n[green][OK][/] {event.steps} steps in {duration}s"
-                            )
+                async for ev in self._agent.run_stream(task):
+                    if ev.type == StreamEventType.THINKING:
+                        self._on_think(ev.content)
+                    elif ev.type == StreamEventType.TEXT:
+                        self._on_text(ev.content)
+                    elif ev.type == StreamEventType.TOOL_START:
+                        self._on_tool_start(ev.tool_name, ev.capability)
+                    elif ev.type == StreamEventType.TOOL_RESULT:
+                        self._on_tool_done(ev.tool_name, ev.capability, ev.ok)
+                    elif ev.type == StreamEventType.ERROR:
+                        self._echo(f"[red]Error: {ev.content}[/]")
+                    elif ev.type == StreamEventType.DONE:
+                        dt = round(time.time() - t0, 1)
+                        if ev.success:
+                            self._echo(f"[green][OK][/] {ev.steps} steps in {dt}s")
                         else:
-                            self._add_to_transcript(
-                                f"\n[red][FAILED][/] {event.error_msg}"
-                            )
+                            self._echo(f"[red][FAILED][/] {ev.error_msg}")
             else:
-                # Fallback: legacy execution
-                self._add_to_transcript("[dim]  Thinking...[/]")
-                result = await self._agent.run(task)
-                duration = round(time.time() - start, 1)
-                if result["success"]:
-                    self._add_to_transcript(
-                        f"[green][OK][/] {result['steps']} steps in {duration}s"
-                    )
-                else:
-                    self._add_to_transcript(f"[red][FAILED][/] {result.get('error', '')}")
+                self._echo("[dim]  …[/]")
+                r = await self._agent.run(task)
+                dt = round(time.time() - t0, 1)
+                self._echo(f"[green][OK][/] {r['steps']} steps in {dt}s" if r["success"]
+                           else f"[red][FAILED][/] {r.get('error', '')}")
         except Exception as e:
-            self._add_to_transcript(f"[red]Error: {e}[/]")
+            self._echo(f"[red]Error: {e}[/]")
         finally:
-            self._running = False
-            self._add_to_transcript("")  # spacer
-            self.query_one("#prompt-input", Input).focus()
+            self._busy = False
+            self._set_status(f"[dim]{self._model}[/] | Ctrl+T:think | /help | Ctrl+C:exit")
+            self.query_one("#prompt", TextArea).focus()
 
-    def _on_stream_thinking(self, content: str) -> None:
-        if self._thinking_block is None:
-            self._thinking_block = ThinkingBlock()
-            self.query_one("#transcript", VerticalScroll).mount(self._thinking_block)
-            self._thinking_block.scroll_visible()
-        self._thinking_block.append(content)
+    def _on_think(self, chunk: str) -> None:
+        if self._think is None:
+            self._think = ThinkingBlock()
+            self._mount(self._think)
+        self._think.feed(chunk)
 
-    def _on_stream_text(self, content: str) -> None:
-        self._add_to_transcript(content, cls="response")
+    def _on_text(self, chunk: str) -> None:
+        if self._resp is None:
+            self._resp = ResponseBlock(chunk)
+            self._mount(self._resp)
+        else:
+            self._resp.raw_text += chunk
+            try:
+                self._resp.update(self._resp.raw_text)
+            except Exception:
+                pass
 
-    def _on_stream_tool_start(self, name: str, cap: str) -> None:
-        line = ToolLine(name, cap)
-        self.query_one("#transcript", VerticalScroll).mount(line)
-        self._tool_lines.append(line)
-        line.scroll_visible()
+    def _on_tool_start(self, name: str, cap: str) -> None:
+        w = Static(f"  → {name}.{cap}  ", classes="tool")
+        self._mount(w)
+        self._tools.append(w)
 
-    def _on_stream_tool_result(self, name: str, cap: str, ok: bool) -> None:
-        # Mark the matching tool line as done
-        for line in reversed(self._tool_lines):
-            if line.tool_name == name and line.tool_cap == cap:
-                line.done(ok)
+    def _on_tool_done(self, name: str, cap: str, ok: bool) -> None:
+        mark = "[green]✓[/]" if ok else "[yellow]⚠[/]"
+        for w in reversed(self._tools):
+            if name in str(w.renderable) and cap in str(w.renderable):
+                w.update(f"  → {name}.{cap}  {mark}")
                 break
 
     def action_toggle_thinking(self) -> None:
-        if self._thinking_block:
-            self._thinking_block.toggle()
-
-    # ── helpers ──
-
-    def _add_to_transcript(self, text: str, cls: str = "") -> None:
-        """Append a message to the transcript area."""
-        w: Static | Markdown
-        if cls == "response" and len(text) > 100:
-            w = Markdown(text)
-        else:
-            w = Static(text)
-        if cls:
-            w.add_class(cls)
-        transcript = self.query_one("#transcript", VerticalScroll)
-        transcript.mount(w)
-        w.scroll_visible()
+        if self._think:
+            self._think.toggle()
