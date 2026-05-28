@@ -1,7 +1,7 @@
 [project]
 name = "therain2020-agent"
-version = "0.3.1"
-description = "Add-First Agent skeleton — bring your own LLM, bring your own tools"
+version = "0.4.0"
+description = "Closed-loop AI agent — ontology objects, event-sourced memory, runtime safety, capability routing, self-teaching patterns"
 requires-python = ">=3.11"
 dependencies = [
     "click>=8.0",

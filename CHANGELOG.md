@@ -1,5 +1,33 @@
 # Changelog
 
+## v0.4.0 (2026-05-28)
+
+Phase 1-3: Quality infrastructure, Event Sourcing, and Intelligence. 247 tests.
+
+### Phase 1 — Infrastructure Quality + Ontology Object Model + Fitness Functions
+- **K: Infrastructure** — Versioned schema migrations (MigrationManager), typed config hierarchy (AppConfig dataclass + dev/test presets), Agent factory pattern (create_agent), centralized exception handling (format_error_for_llm with sanitization)
+- **G: Ontology Object Model** — AgentObject extended with Data+Logic+Actions+Relations (constraints, relations, available_actions). ObjectConstraint/ObjectAction dataclasses. Role generates ontology context from focus definitions. Object context injected into planning prompts via build_object_context()
+- **C: Agent Fitness Functions** — 23 architectural gate tests covering 5 characteristics: plan completeness, dont-do effectiveness with STRIDE threat scenarios, role compliance, context efficiency, output format compliance
+
+### Phase 2 — Event Sourcing Memory System
+- **A: Event Sourcing** — 11 event types covering full agent lifecycle (GoalStarted → ObjectObserved → PlanGenerated → ToolCalled/Result → CorrectionApplied/RuleAdded → GoalVerified → GoalCompleted)
+- EventStore — SQLite append-only event log with indexed queries by task_id and event_type
+- EventPublisher — In-process synchronous pub/sub (explicitly NOT EDA Broker)
+- Snapshot mechanism — periodic state snapshots every 50 events for replay efficiency
+- Consistency model — Safety-critical events (RuleAdded) synchronously visible; observation events are eventual
+
+### Phase 3 — Intelligence
+- **F: Capability Profile Routing** — Per-model, per-task-type success rate tracking (Jagged Frontier). best_model_for() recommends cheapest model with >=85% success rate. Cold start falls back to cost-based routing. CostRouter enhanced with route_with_capability() and record_result()
+- **E: Agent Self-Teaching** — PatternMiner discovers patterns across episodes: error clusters → rule proposals, correction clusters → skill proposals, failure clusters → plan hints. Agent proposes, human approves (Taste principle)
+- Integration wiring — CostRouter + PatternMiner in Agent. _record_capability_result() after each task. mine_patterns() via Agent API
+
+### Fixed
+- FF-2 security gap — _enrich_dont_do_context() extracts path from params, sets path_in_restricted/path_matches. r-fs-001/r-fs-002 now actually fire in production
+- create_agent() factory — Agent.__init__ accepts config_dict, so memory_path override works correctly
+
+### Added
+- New modules: `memory_migrations.py`, `events.py`, `event_store.py`, `pattern_miner.py`, `providers/capability.py`
+
 ## v0.3.1 (2026-05-27)
 
 - Updated README.md and README.zh-CN.md with closed-loop agent architecture

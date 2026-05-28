@@ -2,12 +2,12 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-170%20passed-brightgreen.svg)](tests/)
+[![Tests](https://img.shields.io/badge/tests-247%20passed-brightgreen.svg)](tests/)
 [![PyPI](https://img.shields.io/pypi/v/therain2020-agent.svg)](https://pypi.org/project/therain2020-agent/)
 
 [中文](README.zh-CN.md)
 
-A closed-loop AI agent framework. Structured observation, runtime safety enforcement, correction-driven learning, evidence-based verification — with your own API key.
+A closed-loop AI agent framework. Structured observation, runtime safety enforcement, correction-driven learning, event-sourced memory, capability-aware routing, and self-teaching pattern mining — with your own API key.
 
 ---
 
@@ -18,9 +18,10 @@ Most agent frameworks are prompt-wrappers. They ask an LLM what to do, hope it d
 This one doesn't.
 
 - **Observes** object states before acting. Knows what changed.
-- **Blocks** dangerous operations at runtime — not as a prompt request, as enforced rules.
-- **Learns** from corrections. User says "don't do that" once, it never happens again.
-- **Verifies** results against acceptance criteria with evidence. Not "YES/NO" guessing.
+- **Blocks** dangerous operations at runtime — not as a prompt request, as enforced rules. Path-aware context enrichment closes the gap between rule definitions and real-world execution.
+- **Learns** from corrections. User says "don't do that" once, it never happens again. Agent also **self-teaches** — discovers recurring patterns across episodes and proposes rules autonomously.
+- **Verifies** results against acceptance criteria with evidence. Re-observes object states, computes diffs. Not "YES/NO" guessing.
+- **Remembers** with event sourcing. Every observation, tool call, correction, and verification is an immutable event. Full audit trail. Replay any task from start to finish.
 
 ---
 
@@ -55,16 +56,34 @@ Not a linear prompt→response chain. A Kubernetes-style reconciliation loop tha
 
 | Mode | Use when | Verification |
 |------|----------|-------------|
-| **TODO** | Task list with acceptance criteria | Checks each criterion against execution evidence |
-| **Goal** | Open-ended objectives | Re-observes object states, diffs before/after, returns confidence |
+| **TODO** | Task list with acceptance criteria | Analyzes TODO clarity, asks user if criteria missing, checks each criterion against execution evidence |
+| **Goal** | Open-ended objectives | Re-observes object states, diffs before/after, returns confidence score with explanation |
 
-### Object model
+### Ontology object model (Data + Logic + Actions + Relations)
 
-The agent doesn't just execute commands. It maintains a typed model of what it's working on — files, databases, git repos, services. Each object has a URI, type, and observed state. Before acting, the agent observes the current state. After acting, it observes again. Verification compares the diff.
+The agent doesn't just see raw data. Each object carries:
+
+- **Data** — current state snapshot (size, branch, exists)
+- **Logic** — constraints that govern valid operations ("no hardcoded keys", "don't write to system paths")
+- **Actions** — available operations with preconditions and side effects
+- **Relations** — links to other objects (tested_by, imports, depends_on)
+
+This is injected into the planning prompt. The LLM sees the full picture — not just "file X is size 100", but "file X has these constraints, relates to these other files, and you can use these specific tools on it."
+
+### Event Sourcing memory
+
+Every agent action is an immutable event appended to a SQLite WAL log:
+
+```
+GoalStarted → ObjectObserved → PlanGenerated → ToolCalled → ToolResult
+→ CorrectionApplied → RuleAdded → GoalVerified → GoalCompleted
+```
+
+11 event types. Full replay. Periodic snapshots every 50 events. Safety-critical events (rule changes) are synchronously visible; observation events are eventually consistent.
 
 ### Role-based observation
 
-Roles define *what* to observe and *how*. A backend-developer role knows to observe file-system, git-repo, and database objects. Each object type maps to specific observation and manipulation tools. That means observation is targeted — the agent only calls relevant tools, not everything in its toolbox.
+Roles define *what* to observe and *how*. Each role declares focus objects with observation tools, manipulation tools, prohibited operations, and behavior rules. Observation is targeted — the agent only calls relevant tools, not everything in its toolbox.
 
 ---
 
@@ -81,41 +100,71 @@ rules:
     match:
       object: file
       operation: delete_file
+      path_in_restricted: true
     action: REJECT
     message: "Deleting system files is forbidden"
 ```
 
-Rules fire at **runtime** at three hook points: `PLAN` (filter steps before execution), `PRE_ACTION` (block tool calls), `POST_ACTION` (audit results). Prompt injection is layer 1. Runtime enforcement is layer 2.
+Rules fire at **runtime** at three hook points: `PLAN` (filter steps before execution), `PRE_ACTION` (block tool calls), `POST_ACTION` (audit results). Context is **path-enriched** — the agent extracts path from params and sets `path_in_restricted`/`path_matches` automatically. Prompt injection is layer 1. Runtime enforcement is layer 2. Credential guard is layer 3.
+
+### Trust Boundaries (STRIDE)
+
+Every tool call crosses a trust boundary (LLM → Tool Executor). The security model maps to STRIDE threat modeling:
+
+| Threat | Mitigation |
+|--------|-----------|
+| Spoofing | Role + DontDoEngine dual verification |
+| Tampering | PRE_ACTION path-aware parameter checks |
+| Repudiation | Event Sourcing full audit trail |
+| Info Disclosure | POST_ACTION result filtering + output sanitization |
+| Denial of Service | max_iterations limit + InterruptHandler |
+| Elevation | Role.get_manipulation_tools() whitelist |
 
 ### Correction → rule closed loop
 
-User spots a problem mid-execution? Drop a YAML file into `corrections/`. The agent:
-1. Parses the correction
-2. Generates a dont-do rule via LLM
-3. Persists it to the rule directory
-4. Replans with the new constraint
+User spots a problem mid-execution? Drop a YAML file into `corrections/`. The agent generates a dont-do rule via LLM, persists it, replans with the new constraint. It never makes the same mistake twice.
 
-It never makes the same mistake twice.
+### Architectural Fitness Functions
 
-### Credential guard
-
-API keys stay in the agent core. The LLM never sees them. Tool executor injects them at call time. Output is scanned for leaks.
+23 automated tests verify architectural characteristics every CI run — not just "does the code compile", but "are dont-do rules effective?", "does the agent stay within its role?", "is context usage efficient?".
 
 ---
 
-## It learns
+## Intelligence
+
+### Capability-aware routing
+
+Tracks per-model, per-task-type success rates. When you ask for a "database migration", the router knows haiku succeeds 60% of the time on database tasks — it routes to sonnet automatically. Cold start (new task type) falls back to cost-based routing. Based on Karpathy's "Jagged Frontier" concept.
+
+### Self-teaching pattern mining
+
+The agent discovers patterns across episodes:
+
+- **Error clusters** — same error across same task type → rule proposal
+- **Correction clusters** — same correction repeated → skill proposal
+- **Failure clusters** — same verify failure → plan template hint
+
+Agent **proposes**. Human **approves** (Taste principle).
+
+---
+
+## Memory
 
 ### Episodic memory
 
-Every task run is recorded: what tools were used, what objects changed, what dont-do rules fired, whether it succeeded. SQLite with WAL, FTS5 full-text search.
+Every task run is recorded: tools used, objects changed, dont-do rules fired, success/failure. SQLite WAL with versioned schema migrations.
 
 ### Semantic memory
 
-An LLM-driven consolidation daemon (think kswapd + LFS cleaner) periodically distills episode records into reusable knowledge — preferences, facts, patterns — with confidence scoring. Rule-based fallback when no LLM is available.
+LLM-driven consolidation daemon (kswapd + LFS cleaner) distills episodes into reusable knowledge — preferences, facts, patterns — with confidence scoring.
 
 ### Object state history
 
-`get_object_history("file://src/main.py")` returns the complete change timeline for any object across all episodes. You can trace what happened to a file across days of agent activity.
+`get_object_history("file://src/main.py")` returns the complete change timeline for any object across all episodes.
+
+### Event replay
+
+`event_store.replay_task(task_id)` reconstructs the full execution timeline — every observation, every tool call, every verification — in insertion order.
 
 ---
 
@@ -192,18 +241,23 @@ Every component maps to a Linux kernel concept:
 
 | Module | OS Analogy | What it does |
 |--------|-----------|-------------|
-| `agent/core.py` | Process scheduler | TODO/Goal event loop, 3-iteration max |
-| `agent/objects.py` | VFS inode | Typed object model with state snapshots |
-| `agent/role.py` | seccomp profile | Defines what to observe and allow per object type |
+| `agent/core.py` | Process scheduler | TODO/Goal event loop, dont-do enrichment, capability recording |
+| `agent/objects.py` | VFS inode + xattrs | Ontology object model (Data+Logic+Actions+Relations) |
+| `agent/role.py` | seccomp profile | Structured role with focus objects, constraint/action generation |
 | `agent/dont_do.py` | iptables netfilter | Hook-based rule engine, first-match semantics |
 | `agent/correction.py` | auditd + rule gen | User feedback → dont-do rule closed loop |
+| `agent/events.py` | journald | 11 event types for event-sourced memory |
+| `agent/event_store.py` | ext4 journal | Append-only event log, snapshot, in-process pub/sub |
 | `agent/memory.py` | ext4 journal (WAL) | Episodic + semantic with FTS5 search |
 | `agent/consolidation.py` | kswapd + LFS cleaner | LLM-driven episodic→semantic distillation |
-| `agent/prompt.py` | ELF loader | Structured prompt assembly with format enforcement |
+| `agent/pattern_miner.py` | KSM (same-page merging) | Cross-episode pattern discovery, agent self-teaching |
+| `agent/memory_migrations.py` | Alembic-style | Versioned schema migration tracking |
+| `agent/prompt.py` | ELF loader | Structured prompt assembly + ontology context injection |
 | `agent/context.py` | MMU + page replacement | LRU context window management |
 | `agent/output_format.py` | syslog format enforcer | Citation rules, progressive disclosure, action reports |
 | `agent/providers/pool.py` | RAID 1 + multipath | Provider failover with circuit breaker |
-| `agent/providers/router.py` | ondemand cpufreq | Cost-aware model routing |
+| `agent/providers/router.py` | ondemand cpufreq + NUMA | Cost + capability-aware model routing |
+| `agent/providers/capability.py` | CPU affinity | Jagged Frontier model profiling per task type |
 | `agent/tools/supervisor.py` | systemd | MCP process lifecycle management |
 | `agent/tools/registry.py` | udev | Tool registration, lookup by object type |
 | `agent/tools/adapters/` | filesystem drivers | 9 ecosystem adapters (Claude, Cursor, Gemini, etc.) |
@@ -216,8 +270,10 @@ Full design documents at `D:\GitHub\agent-design\temp\`. 30 design topics, 80+ s
 ## Tests
 
 ```bash
-pytest tests/ -v    # 170 passed
+pytest tests/ -v    # 247 passed
 ```
+
+Including 23 architectural Fitness Functions (plan completeness, dont-do effectiveness with STRIDE, role compliance, context efficiency, output format compliance).
 
 ---
 
