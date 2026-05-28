@@ -5,275 +5,192 @@
 [![Tests](https://img.shields.io/badge/tests-247%20passed-brightgreen.svg)](tests/)
 [![PyPI](https://img.shields.io/pypi/v/therain2020-agent.svg)](https://pypi.org/project/therain2020-agent/)
 
-[中文](README.zh-CN.md)
+[中文文档](README.zh-CN.md)
 
-A closed-loop AI agent framework. Structured observation, runtime safety enforcement, correction-driven learning, event-sourced memory, capability-aware routing, and self-teaching pattern mining — with your own API key.
+A closed-loop agent framework that actually checks its work — observes before acting, blocks dangerous operations at runtime, verifies results with evidence, and learns from every mistake.
+
+---
+
+## What's different
+
+Most agent frameworks send a prompt, execute whatever the LLM says, and call it done. This one runs a reconciliation loop:
+
+- **Observes object state before acting.** Knows what a file looks like before writing to it. Diffs before and after.
+- **Blocks at runtime, not in prompts.** Dont-do rules fire at three hook points. Path-aware context enrichment means rules actually match real paths — not just pattern names.
+- **Verifies with evidence.** Re-observes after acting. Compares acceptance criteria against what actually changed. Returns confidence, not guesswork.
+- **Remembers as events.** Every observation, tool call, correction, and verification is an immutable event. Full replay. Full audit trail.
+- **Routes by capability, not just cost.** Tracks per-model success rates per task type. Knows when to upgrade from haiku to sonnet for database work.
+- **Discovers its own patterns.** Mines past episodes for recurring errors, corrections, and failures. Proposes rules. You approve.
 
 ---
 
-## Why
+## Install
 
-Most agent frameworks are prompt-wrappers. They ask an LLM what to do, hope it does the right thing, and call it done.
-
-This one doesn't.
-
-- **Observes** object states before acting. Knows what changed.
-- **Blocks** dangerous operations at runtime — not as a prompt request, as enforced rules. Path-aware context enrichment closes the gap between rule definitions and real-world execution.
-- **Learns** from corrections. User says "don't do that" once, it never happens again. Agent also **self-teaches** — discovers recurring patterns across episodes and proposes rules autonomously.
-- **Verifies** results against acceptance criteria with evidence. Re-observes object states, computes diffs. Not "YES/NO" guessing.
-- **Remembers** with event sourcing. Every observation, tool call, correction, and verification is an immutable event. Full audit trail. Replay any task from start to finish.
-
----
+```bash
+pip install therain2020-agent
+```
 
 ## Quick start
 
 ```bash
-pip install therain2020-agent
-
+# Add a provider
 therain2020-agent provider add qwen --adapter custom \
   --api-key-env ALI_TONGYI_KEY \
   --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
   --model qwen-plus
 
+# Discover tools
 therain2020-agent add discover
-therain2020-agent add from-claude-code
-therain2020-agent run "fix the login bug"
+
+# Run a task
+therain2020-agent run "add rate limiting to the login endpoint"
 ```
 
 ---
 
 ## How it works
 
-### The agent loop
+### The loop
 
 ```
-Observe → Analyze → Plan → Execute → Verify → (loop, max 3)
+Observe → Analyze → Plan → Execute → Verify → (retry, max 3)
 ```
 
-Not a linear prompt→response chain. A Kubernetes-style reconciliation loop that keeps trying until the goal is met or the loop is exhausted.
+Not a linear prompt→response chain. The agent keeps going until the goal is verified or the loop exhausts. Think Kubernetes reconciliation, not shell script.
 
-### Two execution modes
+### Two modes
 
-| Mode | Use when | Verification |
-|------|----------|-------------|
-| **TODO** | Task list with acceptance criteria | Analyzes TODO clarity, asks user if criteria missing, checks each criterion against execution evidence |
-| **Goal** | Open-ended objectives | Re-observes object states, diffs before/after, returns confidence score with explanation |
+| Mode | Best for | How it verifies |
+|------|----------|----------------|
+| **TODO** | Tasks with clear acceptance criteria | Analyzes clarity, asks if criteria are missing, checks each one against evidence |
+| **Goal** | Open-ended objectives | Re-observes objects, computes before/after diff, returns confidence score |
 
-### Ontology object model (Data + Logic + Actions + Relations)
+### Ontology object model
 
-The agent doesn't just see raw data. Each object carries:
+The agent doesn't see raw strings. Each object carries four layers of context — what Palantir calls the Data-Logic-Actions triad plus Relations:
 
-- **Data** — current state snapshot (size, branch, exists)
-- **Logic** — constraints that govern valid operations ("no hardcoded keys", "don't write to system paths")
-- **Actions** — available operations with preconditions and side effects
-- **Relations** — links to other objects (tested_by, imports, depends_on)
+- **State** — current snapshot (size, branch, exists, hash)
+- **Constraints** — what you can't do to this object ("no hardcoded keys", "don't write to /etc")
+- **Actions** — what you can do, with preconditions and side effects
+- **Relations** — what this object connects to (tested by, imported by, depends on)
 
-This is injected into the planning prompt. The LLM sees the full picture — not just "file X is size 100", but "file X has these constraints, relates to these other files, and you can use these specific tools on it."
-
-### Event Sourcing memory
-
-Every agent action is an immutable event appended to a SQLite WAL log:
-
-```
-GoalStarted → ObjectObserved → PlanGenerated → ToolCalled → ToolResult
-→ CorrectionApplied → RuleAdded → GoalVerified → GoalCompleted
-```
-
-11 event types. Full replay. Periodic snapshots every 50 events. Safety-critical events (rule changes) are synchronously visible; observation events are eventually consistent.
-
-### Role-based observation
-
-Roles define *what* to observe and *how*. Each role declares focus objects with observation tools, manipulation tools, prohibited operations, and behavior rules. Observation is targeted — the agent only calls relevant tools, not everything in its toolbox.
+This full context is injected into every planning prompt. The LLM sees "file X, size 100, constraint: no system paths, related to test_auth.py, can read_file and write_file" — not just "file X".
 
 ---
 
 ## Safety
 
-Three layers. Not one.
+### Dont-Do rules
 
-### Dont-Do rules — iptables-style enforcement
+Rules fire at runtime, not as prompt suggestions. Three hook points:
 
-```yaml
-rules:
-  - id: no-delete-system
-    hook: [PRE_ACTION]
-    match:
-      object: file
-      operation: delete_file
-      path_in_restricted: true
-    action: REJECT
-    message: "Deleting system files is forbidden"
+```
+PLAN        → filter dangerous steps before execution
+PRE_ACTION  → block tool calls with bad parameters
+POST_ACTION → audit results for suspicious output
 ```
 
-Rules fire at **runtime** at three hook points: `PLAN` (filter steps before execution), `PRE_ACTION` (block tool calls), `POST_ACTION` (audit results). Context is **path-enriched** — the agent extracts path from params and sets `path_in_restricted`/`path_matches` automatically. Prompt injection is layer 1. Runtime enforcement is layer 2. Credential guard is layer 3.
+The agent enriches context before checking — extracts paths from params, sets `path_in_restricted` and `path_matches` automatically. A rule that says "block writes to /etc" actually catches `/etc/passwd`.
 
-### Trust Boundaries (STRIDE)
+### Trust boundaries (STRIDE)
 
-Every tool call crosses a trust boundary (LLM → Tool Executor). The security model maps to STRIDE threat modeling:
+Every tool call crosses a trust boundary. Each STRIDE dimension has a mitigation:
 
-| Threat | Mitigation |
-|--------|-----------|
-| Spoofing | Role + DontDoEngine dual verification |
-| Tampering | PRE_ACTION path-aware parameter checks |
-| Repudiation | Event Sourcing full audit trail |
-| Info Disclosure | POST_ACTION result filtering + output sanitization |
-| Denial of Service | max_iterations limit + InterruptHandler |
-| Elevation | Role.get_manipulation_tools() whitelist |
+| Threat | How it's caught |
+|--------|----------------|
+| Spoofing | Role + DontDoEngine verify every call |
+| Tampering | Path-aware parameter inspection at PRE_ACTION |
+| Repudiation | Event Sourcing provides full audit trail |
+| Info leaks | POST_ACTION result filtering + credential guard |
+| DoS | max_iterations cap + interrupt handler |
+| Elevation | Role whitelist — tools outside the role can't be called |
 
-### Correction → rule closed loop
+### Corrections
 
-User spots a problem mid-execution? Drop a YAML file into `corrections/`. The agent generates a dont-do rule via LLM, persists it, replans with the new constraint. It never makes the same mistake twice.
+User spots a problem? Drop a YAML in `corrections/`. The agent generates a dont-do rule, persists it, and replans. The same mistake never happens twice.
 
-### Architectural Fitness Functions
+### Architectural fitness functions
 
-23 automated tests verify architectural characteristics every CI run — not just "does the code compile", but "are dont-do rules effective?", "does the agent stay within its role?", "is context usage efficient?".
-
----
-
-## Intelligence
-
-### Capability-aware routing
-
-Tracks per-model, per-task-type success rates. When you ask for a "database migration", the router knows haiku succeeds 60% of the time on database tasks — it routes to sonnet automatically. Cold start (new task type) falls back to cost-based routing. Based on Karpathy's "Jagged Frontier" concept.
-
-### Self-teaching pattern mining
-
-The agent discovers patterns across episodes:
-
-- **Error clusters** — same error across same task type → rule proposal
-- **Correction clusters** — same correction repeated → skill proposal
-- **Failure clusters** — same verify failure → plan template hint
-
-Agent **proposes**. Human **approves** (Taste principle).
+23 automated tests verify architectural properties every CI run — dont-do effectiveness, role compliance, context efficiency, output format. Not "does it compile" — "does the architecture hold."
 
 ---
 
 ## Memory
 
-### Episodic memory
+**Episodic** — every task recorded with tools used, objects changed, rules fired. SQLite WAL with versioned migrations.
 
-Every task run is recorded: tools used, objects changed, dont-do rules fired, success/failure. SQLite WAL with versioned schema migrations.
+**Event Sourcing** — 11 event types across the full lifecycle. Append-only log. Periodic snapshots. Full replay.
 
-### Semantic memory
+**Semantic** — LLM-driven consolidation distills episodes into preferences, facts, and patterns with confidence scores.
 
-LLM-driven consolidation daemon (kswapd + LFS cleaner) distills episodes into reusable knowledge — preferences, facts, patterns — with confidence scoring.
-
-### Object state history
-
-`get_object_history("file://src/main.py")` returns the complete change timeline for any object across all episodes.
-
-### Event replay
-
-`event_store.replay_task(task_id)` reconstructs the full execution timeline — every observation, every tool call, every verification — in insertion order.
+**Object history** — `get_object_history("file://src/main.py")` returns the complete change timeline across all episodes.
 
 ---
 
-## Output discipline
+## Intelligence
 
-System-level format constraints enforced in every prompt:
+**Capability routing** — per-model, per-task-type success tracking. Database migration on haiku keeps failing at 60%? The router upgrades to sonnet automatically. New task types fall back to cost-based routing. Based on Karpathy's Jagged Frontier.
 
-```
-<format_rules immutable="true">
-  File references: path/to/file:line_number
-  Long responses: --- separated (summary → details → full)
-  Every function_call must have an <action_report>
-</format_rules>
-```
-
-Format violations are detected post-hoc and flagged. Not suggestions — immutable rules.
+**Pattern mining** — mines past episodes for clusters: recurring errors → rule proposals, repeated corrections → skill proposals, common failures → plan hints. Agent proposes. Human decides (Taste principle).
 
 ---
 
 ## Commands
 
-```bash
-# Provider
-therain2020-agent provider add <name> --adapter anthropic|openai|deepseek|custom ...
-therain2020-agent provider list
-therain2020-agent provider test <name>
-
-# Add
-therain2020-agent add discover
-therain2020-agent add search <keyword>
-therain2020-agent add from-claude-code
-therain2020-agent add from-cursor
-therain2020-agent add from-gemini
-therain2020-agent add from-codex
-therain2020-agent add skill <path>
-therain2020-agent add mcp <command>
-therain2020-agent add list
-therain2020-agent add remove <name>
-
-# Publish
-therain2020-agent publish init <name>
-therain2020-agent publish build
-therain2020-agent publish verify
-
-# Run
-therain2020-agent run "task"
-therain2020-agent run "goal" --mode goal
-
-# Info
-therain2020-agent info tools
-therain2020-agent info dont-do
-therain2020-agent info config
-```
-
----
-
-## Supported formats
-
-| Source | Reads | Produces |
-|---|---|---|
-| Claude Code | SKILL.md, .claude-plugin/, settings.json, CLAUDE.md | tool.md, role.md, dont-do rules |
-| Cursor | .cursor/rules/, mcp.json | tool.md, behavior rules |
-| Gemini CLI | config.json, extensions/ | tool.md (MCP) |
-| Codex CLI | config.yaml, plugins/ | tool.md (MCP) |
-| MCP | stdio / SSE / Streamable HTTP | tool.md (runtime=mcp) |
-| Aider | CONVENTIONS.md | behavior rules |
-| Custom | tool.md + Python script | native, no conversion needed |
+| Command | What it does |
+|--------|-------------|
+| `provider add` | Register an LLM provider (Anthropic, OpenAI, DeepSeek, custom) |
+| `provider list / test` | List or test registered providers |
+| `add discover` | Scan local machine for tools, skills, and MCP servers |
+| `add from-claude-code` | Import from Claude Code (skills, settings, plugins) |
+| `add from-cursor / from-codex / from-gemini` | Import from other coding agents |
+| `add skill <path>` | Register a skill by path |
+| `add mcp <command>` | Register an MCP server |
+| `add search <keyword>` | Search GitHub + MCP Registry for tools |
+| `publish init / build / verify` | Package and publish tools |
+| `run "task"` | Execute in TODO mode |
+| `run "goal" --mode goal` | Execute in Goal mode |
+| `info tools / dont-do / config` | Inspect current state |
 
 ---
 
 ## Architecture
 
-Every component maps to a Linux kernel concept:
+Every module maps to a Linux kernel concept:
 
-| Module | OS Analogy | What it does |
-|--------|-----------|-------------|
-| `agent/core.py` | Process scheduler | TODO/Goal event loop, dont-do enrichment, capability recording |
-| `agent/objects.py` | VFS inode + xattrs | Ontology object model (Data+Logic+Actions+Relations) |
-| `agent/role.py` | seccomp profile | Structured role with focus objects, constraint/action generation |
-| `agent/dont_do.py` | iptables netfilter | Hook-based rule engine, first-match semantics |
-| `agent/correction.py` | auditd + rule gen | User feedback → dont-do rule closed loop |
-| `agent/events.py` | journald | 11 event types for event-sourced memory |
-| `agent/event_store.py` | ext4 journal | Append-only event log, snapshot, in-process pub/sub |
-| `agent/memory.py` | ext4 journal (WAL) | Episodic + semantic with FTS5 search |
-| `agent/consolidation.py` | kswapd + LFS cleaner | LLM-driven episodic→semantic distillation |
-| `agent/pattern_miner.py` | KSM (same-page merging) | Cross-episode pattern discovery, agent self-teaching |
-| `agent/memory_migrations.py` | Alembic-style | Versioned schema migration tracking |
-| `agent/prompt.py` | ELF loader | Structured prompt assembly + ontology context injection |
-| `agent/context.py` | MMU + page replacement | LRU context window management |
-| `agent/output_format.py` | syslog format enforcer | Citation rules, progressive disclosure, action reports |
-| `agent/providers/pool.py` | RAID 1 + multipath | Provider failover with circuit breaker |
-| `agent/providers/router.py` | ondemand cpufreq + NUMA | Cost + capability-aware model routing |
-| `agent/providers/capability.py` | CPU affinity | Jagged Frontier model profiling per task type |
-| `agent/tools/supervisor.py` | systemd | MCP process lifecycle management |
-| `agent/tools/registry.py` | udev | Tool registration, lookup by object type |
-| `agent/tools/adapters/` | filesystem drivers | 9 ecosystem adapters (Claude, Cursor, Gemini, etc.) |
-| `agent/security/` | LSM + keyring | Credential guard, prompt injection defense |
+| Module | Kernel analogy |
+|--------|---------------|
+| `core.py` | Process scheduler — event loop, context enrichment, capability recording |
+| `objects.py` | VFS inode + xattrs — Ontology object model (Data+Logic+Actions+Relations) |
+| `role.py` | seccomp — structured role with constraint/action generation |
+| `dont_do.py` | iptables — hook-based rule engine, path-aware matching |
+| `correction.py` | auditd — user feedback → rule closed loop |
+| `events.py` | journald — 11 event types for event sourcing |
+| `event_store.py` | ext4 journal — append-only log, snapshots, in-process pub/sub |
+| `memory.py` | ext4 WAL — episodic + semantic, FTS5 search |
+| `consolidation.py` | kswapd — LLM-driven episodic→semantic distillation |
+| `pattern_miner.py` | KSM — cross-episode pattern discovery |
+| `memory_migrations.py` | Alembic — versioned schema migrations |
+| `prompt.py` | ELF loader — prompt assembly + ontology context injection |
+| `context.py` | MMU — LRU context window management |
+| `output_format.py` | syslog — citation rules, progressive disclosure |
+| `providers/pool.py` | RAID 1 — failover with circuit breaker |
+| `providers/router.py` | cpufreq + NUMA — cost + capability-aware routing |
+| `providers/capability.py` | CPU affinity — Jagged Frontier per-task profiling |
+| `tools/registry.py` | udev — tool registration, lookup by object type |
+| `tools/executor.py` | execve — execution with credential injection |
+| `tools/supervisor.py` | systemd — MCP process lifecycle |
+| `security/` | LSM + keyring — credential guard, prompt injection defense |
 
-Full design documents at `D:\GitHub\agent-design\temp\`. 30 design topics, 80+ solution variants, 119 OS analogy mappings.
+30 design documents, 80+ solution variants, 119 OS analogy mappings in `D:\GitHub\agent-design\temp\`.
 
 ---
 
 ## Tests
 
 ```bash
-pytest tests/ -v    # 247 passed
+pytest tests/ -v    # 247 passed, including 23 architectural fitness functions
 ```
-
-Including 23 architectural Fitness Functions (plan completeness, dont-do effectiveness with STRIDE, role compliance, context efficiency, output format compliance).
 
 ---
 
