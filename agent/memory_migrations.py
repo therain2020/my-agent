@@ -48,6 +48,24 @@ MIGRATIONS: list[tuple[str, str]] = [
         -- Idempotent: skip if columns already exist (001 creates them for new DBs)
         -- Only needed for legacy databases created before Phase 1
     """),
+    ("003_add_event_log", """
+        CREATE TABLE IF NOT EXISTS event_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            payload TEXT NOT NULL DEFAULT '{}'
+        );
+        CREATE INDEX IF NOT EXISTS idx_event_task ON event_log(task_id);
+        CREATE INDEX IF NOT EXISTS idx_event_type ON event_log(event_type);
+
+        CREATE TABLE IF NOT EXISTS snapshots (
+            task_id TEXT PRIMARY KEY,
+            last_event_id INTEGER NOT NULL,
+            state_json TEXT NOT NULL,
+            taken_at TEXT NOT NULL
+        );
+    """),
 ]
 
 # Individual ADD COLUMN statements for 002 — applied one at a time
