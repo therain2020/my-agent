@@ -204,6 +204,46 @@ class ConsolidationDaemon:
             )
         return "\n\n".join(lines)
 
+    async def extract_skill_from_episode(self, task_summary: str,
+                                          tools_used: list[str],
+                                          steps: int) -> dict | None:
+        """Extract a reusable skill from a successful episode.
+
+        Called after each successful task to build the skills network.
+        Returns a dict with skill fields, or None if nothing extractable.
+        """
+        if not self._provider:
+            return None
+
+        prompt = f"""分析以下成功完成的任务，提取可复用的"技能"。
+
+任务描述: {task_summary}
+使用的工具: {', '.join(tools_used) if tools_used else 'none'}
+执行步骤数: {steps}
+结果: 成功
+
+请提取:
+1. 技能名称（简短）
+2. 技能适用的触发条件（关键词列表，3-5个）
+3. 执行方法（步骤说明，2-5步）
+4. 前置条件（需要什么环境/状态）
+5. 后置条件（执行后应该是什么状态）
+6. 任务类型（file-manipulation / data-processing / git / testing / general）
+
+输出 JSON:
+{{"name": "...", "triggers": [...], "task_type": "...", "domain": "...",
+  "approach": "...", "preconditions": [...], "postconditions": [...]}}
+
+如果任务太简单不值得提取，返回 {{}}."""
+        try:
+            resp = await self._provider.complete(prompt, max_tokens=500)
+            data = json.loads(self._extract_json(resp.content))
+            if data and data.get("name"):
+                return data
+        except Exception as e:
+            logger.debug("skill_extraction_skipped", error=str(e))
+        return None
+
     def _extract_json(self, text: str) -> str:
         """Extract JSON array from LLM response (may have markdown wrap)."""
         text = text.strip()
