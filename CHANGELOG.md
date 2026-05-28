@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.7.0 (2026-05-28)
+
+### Added
+- **Textual TUI** — full Claude Code-style terminal interface with proper layout
+  - Header + scrollable Transcript + Input area + Footer status bar
+  - Thinking blocks: collapsible panels (Ctrl+T toggle)
+  - Live tool progress: → tool.cap ✓ indicators
+  - Input history: ↑↓ cycle through past commands
+  - Async worker keeps UI responsive during agent execution
+- **Structured streaming** — `Agent.run_stream()` async generator with thinking/text/tool events
+- **Provider thinking support** — Anthropic `thinking_delta` + DeepSeek `reasoning_content`
+- **Rich rendering** — Markdown, panels, spinners for streaming output
+- **Auto-detect providers** — 8 providers from env vars, no manual `provider add` needed
+- **/think command** — toggle thinking display in REPL
+
+### Changed
+- Default CLI launches Textual TUI; `--repl` flag for legacy mode
+- Provider auto-detection (DeepSeek first, then Anthropic, OpenAI, etc.)
+- Default data paths under `~/.therain2020-agent/` (no more CWD dependency)
+
+### Added Dependencies
+- `rich>=13.0` — terminal formatting
+- `textual>=2.0` — TUI framework
+
 ## v0.6.1 (2026-05-28)
 
 ### Fixed
