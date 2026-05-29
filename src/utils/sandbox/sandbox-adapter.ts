@@ -5,21 +5,28 @@
  */
 
 import type {
-  FsReadRestrictionConfig,
-  FsWriteRestrictionConfig,
-  IgnoreViolationsConfig,
   NetworkHostPattern,
-  NetworkRestrictionConfig,
   SandboxAskCallback,
   SandboxDependencyCheck,
   SandboxRuntimeConfig,
   SandboxViolationEvent,
-} from '@anthropic-ai/sandbox-runtime'
-import {
-  SandboxManager as BaseSandboxManager,
-  SandboxRuntimeConfigSchema,
-  SandboxViolationStore,
-} from '@anthropic-ai/sandbox-runtime'
+} from './sandboxRuntimeStub.js'
+
+let BaseSandboxManager: typeof import('./sandboxRuntimeStub.js').SandboxManager
+let SandboxRuntimeConfigSchema: typeof import('./sandboxRuntimeStub.js').SandboxRuntimeConfigSchema
+let SandboxViolationStore: typeof import('./sandboxRuntimeStub.js').SandboxViolationStore
+
+try {
+  const sandboxRuntime = require('@anthropic-ai/sandbox-runtime')
+  BaseSandboxManager = sandboxRuntime.SandboxManager
+  SandboxRuntimeConfigSchema = sandboxRuntime.SandboxRuntimeConfigSchema
+  SandboxViolationStore = sandboxRuntime.SandboxViolationStore
+} catch {
+  const stub = require('./sandboxRuntimeStub.js')
+  BaseSandboxManager = stub.SandboxManager
+  SandboxRuntimeConfigSchema = stub.SandboxRuntimeConfigSchema
+  SandboxViolationStore = stub.SandboxViolationStore
+}
 import { rmSync, statSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { memoize } from 'lodash-es'
