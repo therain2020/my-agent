@@ -49,40 +49,42 @@ class AgentRepl:
         self.turn += 1
         t0 = time.time()
         steps = 0
-        _first_event = True
+        _first = True
+        _pending_text = ""
 
         try:
             session = create_session(task=task)
             print()
 
-            # Show waiting indicator during LLM call
-            sys.stdout.write("  …")
-            sys.stdout.flush()
-
             async for event in run_stream(task, session):
-                if _first_event:
-                    _first_event = False
-                    sys.stdout.write("\r")  # clear the "…"
-                    sys.stdout.flush()
+                if _first:
+                    _first = False
+                    print(f"\x1b[90m--- step {steps+1} ---\x1b[0m", flush=True)
 
                 if event.type == StreamEventType.THINKING:
                     self._show_thinking(event.content)
                 elif event.type == StreamEventType.TEXT:
-                    print(event.content, end="", flush=True)
+                    _pending_text += event.content
                 elif event.type == StreamEventType.TOOL_START:
+                    # Flush any pending text before showing tools
+                    if _pending_text.strip():
+                        print(f"\x1b[90m  plan:\x1b[0m {_pending_text.strip()[:500]}")
+                        _pending_text = ""
                     self._show_tool_start(event)
                 elif event.type == StreamEventType.TOOL_RESULT:
                     self._show_tool_result(event)
                 elif event.type == StreamEventType.ERROR:
-                    print(f"\nError: {event.error_msg}")
+                    print(f"\x1b[91m  error:\x1b[0m {event.error_msg[:300]}")
                 elif event.type == StreamEventType.DONE:
                     steps = event.steps
+                    if _pending_text.strip():
+                        print(f"\x1b[90m  plan:\x1b[0m {_pending_text.strip()[:500]}")
 
             elapsed = time.time() - t0
-            print(f"\nDone — {steps} steps, {elapsed:.1f}s\n")
+            print(f"\n\x1b[90mDone — {steps} steps, {elapsed:.1f}s\x1b[0m\n")
             session.memory.close()
         except Exception as e:
-            print(f"\nError: {e}\n")
+            print(f"\x1b[91mError: {e}\x1b[0m\n")
 
     @staticmethod
     def _show_thinking(content: str):
@@ -97,9 +99,9 @@ class AgentRepl:
                 f"{k}={_truncate(repr(v), 60)}"
                 for k, v in event.arguments.items()
             )
-            print(f"\n  … {name}({args_str})", flush=True)
+            print(f"  \x1b[93m→\x1b[0m {name}({args_str})", flush=True)
         else:
-            print(f"\n  … {name}", flush=True)
+            print(f"  \x1b[93m→\x1b[0m {name}", flush=True)
 
     @staticmethod
     def _show_tool_result(event):

@@ -18,11 +18,11 @@ def setup(port: int = 9222) -> str:
     """Auto-configure browser-harness. Returns status string."""
 
     # 1. Check browser-harness installed
-    bh_cmd = shutil.which("browser-harness")
+    bh_cmd = _find_browser_harness()
     if not bh_cmd:
         return _fail(
             "browser-harness not installed. "
-            "Fix: shell__run('pip install browser-harness') then retry"
+            "Fix: shell__run('pip install browser-harness') then retry browser-setup__setup()"
         )
 
     # 2. Find Chrome
@@ -90,7 +90,7 @@ def setup(port: int = 9222) -> str:
 def status() -> str:
     """Report current browser connection status."""
     parts = []
-    if shutil.which("browser-harness"):
+    if _find_browser_harness():
         parts.append("browser-harness: installed")
     else:
         parts.append("browser-harness: NOT installed")
@@ -109,34 +109,96 @@ def status() -> str:
     return "; ".join(parts)
 
 
+def _find_browser_harness():
+    """Find browser-harness CLI. Tries shutil.which, pip show, and common paths."""
+    if found := shutil.which("browser-harness"):
+        return found
+    # pip install may put scripts in a location not yet in PATH
+    if found := shutil.which("browser-harness.exe"):
+        return found
+    # Check via pip
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "show", "browser-harness"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if line.startswith("Location:"):
+                    loc = line.split(":", 1)[1].strip()
+                    # Look for the script in the scripts directory
+                    scripts = os.path.join(loc, "..", "..", "Scripts",
+                                           "browser-harness.exe" if sys.platform == "win32" else "browser-harness")
+                    scripts = os.path.normpath(scripts)
+                    if os.path.isfile(scripts):
+                        return scripts
+                    # Also check bin/
+                    scripts = os.path.join(loc, "..", "..", "bin", "browser-harness")
+                    scripts = os.path.normpath(scripts)
+                    if os.path.isfile(scripts):
+                        return scripts
+    except Exception:
+        pass
+    return None
+
+
 # -- helpers -------------------------------------------------------------
 
 def _find_chrome():
-    """Cross-platform Chrome discovery."""
+    """Cross-platform Chrome discovery — exhaustive search."""
     if path := os.environ.get("BH_CHROME_PATH"):
         if os.path.isfile(path):
             return path
-    names = []
+
     if sys.platform == "win32":
-        names = [
+        # Exhaustive Windows search: registry + all known paths
+        names = []
+        # Try registry first
+        try:
+            import winreg
+            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                for sub in (
+                    r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",
+                    r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\msedge.exe",
+                ):
+                    try:
+                        with winreg.OpenKey(root, sub) as k:
+                            names.append(winreg.QueryValue(k, ""))
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+        # Known install paths
+        names += [
             os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
             os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
             os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-            "chrome.exe",
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
         ]
+        for n in names:
+            if n and os.path.isfile(n):
+                return n
+        # Fallback: try PATH
+        for n in ("chrome.exe", "msedge.exe", "chromium.exe"):
+            found = shutil.which(n)
+            if found:
+                return found
     elif sys.platform == "darwin":
         names = [
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
         ]
+        for n in names:
+            if os.path.isfile(n):
+                return n
     else:
-        names = [
-            "google-chrome-stable", "google-chrome",
-            "chromium-browser", "chromium",
-        ]
-    for n in names:
-        found = shutil.which(n) if "/" not in n else n
-        if found and os.path.isfile(found):
-            return found
+        for n in ("google-chrome-stable", "google-chrome",
+                  "chromium-browser", "chromium", "microsoft-edge"):
+            found = shutil.which(n)
+            if found:
+                return found
     return None
 
 
