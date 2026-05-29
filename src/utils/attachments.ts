@@ -185,7 +185,6 @@ import {
 import {
   checkForLSPDiagnostics,
   clearAllLSPDiagnostics,
-} from '../services/lsp/LSPDiagnosticRegistry.js'
 import { logForDebugging } from './debug.js'
 import {
   extractTextContent,

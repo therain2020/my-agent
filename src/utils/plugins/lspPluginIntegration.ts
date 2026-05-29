@@ -4,7 +4,6 @@ import { z } from 'zod/v4'
 import type {
   LspServerConfig,
   ScopedLspServerConfig,
-} from '../../services/lsp/types.js'
 import { expandEnvVarsInString } from '../../services/mcp/envExpansion.js'
 import type { LoadedPlugin, PluginError } from '../../types/plugin.js'
 import { logForDebugging } from '../debug.js'
