@@ -20,6 +20,8 @@ from dataclasses import dataclass
 
 from .cli.app import Event
 from .constants import MAX_CONVERSATION_MESSAGES
+from .healing import get as get_healing
+from .healing import save as save_healing
 from .jsonutil import safe_parse_json
 from .memory import Episode
 from .session import Session
@@ -132,6 +134,7 @@ async def run_stream(task: str, session: Session) -> AsyncIterator[Event]:
             success=True,
         ))
         _record_session(task, True, steps, tools_used, elapsed)
+        save_healing()
         yield Event.done(steps, elapsed, tools_used)
 
 
@@ -149,20 +152,28 @@ async def _step(session: Session, tools_used: list[str]) -> StepResult:
         return StepResult(finish_reason="error", content=str(e))
 
     if response.tool_calls:
+        _last_error = None
+        _last_failed_tool = ""
         for tc in response.tool_calls:
-            # add assistant tool-call message
             session.conversation.append({
                 "role": "assistant",
                 "content": response.content or "",
                 "tool_calls": [tc],
             })
             result_text = await _execute_tool(tc, session, tools_used)
-            # add tool result
             session.conversation.append({
                 "role": "tool",
                 "tool_call_id": tc.get("id", ""),
                 "content": result_text,
             })
+            # Auto-detect: tool failed → next tool is bash that succeeds → record fix
+            name = tc["function"]["name"]
+            if _is_error(result_text) and _last_error is None:
+                _last_error = result_text
+                _last_failed_tool = name
+            elif _last_error and name.startswith("bash") and not _is_error(result_text):
+                _auto_record_fix(_last_error, tc)
+                _last_error = None
         # trim conversation
         if len(session.conversation) > MAX_CONVERSATION_MESSAGES:
             session.conversation = (
@@ -190,6 +201,26 @@ def _parse_tool_args(tool_call: dict) -> dict:
         return args if isinstance(args, dict) else {}
     except (ValueError, json.JSONDecodeError):
         return {}
+
+
+def _is_error(result: str) -> bool:
+    return bool(result) and (
+        "[ERROR]" in result or "[REJECTED]" in result
+        or result.startswith(("Error:", "FAILED:", "TIMEOUT"))
+    )
+
+
+def _auto_record_fix(error_text: str, fix_tc: dict):
+    """Detect and persist fix: tool failed → bash command succeeded."""
+    try:
+        name = fix_tc["function"]["name"]
+        args_str = fix_tc["function"]["arguments"]
+        args = safe_parse_json(args_str) if isinstance(args_str, str) else {}
+        cmd = args.get("command", args_str)
+        if cmd and len(cmd) > 5:
+            get_healing().record(error_text, cmd, name, success=True)
+    except Exception:
+        pass
 
 
 def _get_last_tool_result(session: Session) -> str:
@@ -234,6 +265,14 @@ def _build_system(session: Session) -> str:
         "2. Delete = bash__delete(path). REQUIRES user confirmation first.",
         "3. Use browser__capture_screenshot() to see what's on screen.",
     ]
+
+    # Load healing context (known fixes + platform + paths)
+    try:
+        heal_ctx = get_healing().context()
+        if heal_ctx:
+            parts.append("System knowledge:\n" + heal_ctx)
+    except Exception:
+        pass
 
     # Load memory context (Claude Code-style MEMORY.md + memory files)
     try:
@@ -289,7 +328,8 @@ async def _execute_tool(
         result = _dispatch_tool(tool_name, cap_name, args)
         tools_used.append(name)
     except Exception:
-        result = f"[ERROR] Tool execution failed: {traceback.format_exc()}"
+        result = f"[ERROR] {traceback.format_exc()}"
+        result = get_healing().enrich_error(result, tool_name)
 
     # POST_ACTION safety check
     session.safety.check("POST_ACTION", {"tool": name, "result": result})

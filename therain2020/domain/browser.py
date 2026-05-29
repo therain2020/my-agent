@@ -1,47 +1,128 @@
 """Browser domain tool — real CDP via browser-harness IPC.
 
-Requires browser-harness daemon running (connected to user's Chrome).
-Install: pip install browser-harness
-Connect: open chrome://inspect/#remote-debugging, tick checkbox, click Allow.
+Self-healing: _ensure_ready() auto-finds Chrome, launches with
+remote debugging, starts daemon. Uses healing DB for known paths.
 """
 
 from __future__ import annotations
 
 import base64
 import json
+import os
+import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 
 from .. import _ipc as ipc
 
 _DAEMON = "default"
+_PORT = 9222
+_READY = False
 
 
 def _cdp(method, **params):
-    """Send a CDP command through the browser-harness daemon."""
     try:
         return ipc.cdp(method, name=_DAEMON, **params)
     except (FileNotFoundError, ConnectionRefusedError, TimeoutError, OSError) as e:
-        raise RuntimeError(
-            "No browser connected. Make sure Chrome is running with remote "
-            "debugging enabled (chrome://inspect/#remote-debugging). "
-            f"IPC error: {e}"
-        )
+        raise RuntimeError(f"browser daemon not running: {e}")
 
 
-def _check_daemon():
-    if not ipc.ping(_DAEMON, timeout=0.5):
+def _find_chrome() -> str | None:
+    from ..healing import get as get_heal
+    # 1. Known path from healing DB
+    known = get_heal().get_path("chrome")
+    if known and os.path.isfile(known):
+        return known
+    # 2. Search
+    if sys.platform == "win32":
+        for pf in (os.environ.get("ProgramFiles", r"C:\Program Files"),
+                    os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")):
+            for sub in (r"Google\Chrome\Application\chrome.exe",
+                        r"Microsoft\Edge\Application\msedge.exe"):
+                p = os.path.join(pf, sub)
+                if os.path.isfile(p):
+                    get_heal().remember_path("chrome", p)
+                    return p
+        # Try registry
+        try:
+            import winreg
+            for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+                for sub in (r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",):
+                    try:
+                        with winreg.OpenKey(root, sub) as k:
+                            p = winreg.QueryValue(k, "")
+                            if p and os.path.isfile(p):
+                                get_heal().remember_path("chrome", p)
+                                return p
+                    except OSError:
+                        pass
+        except Exception:
+            pass
+    else:
+        for name in ("google-chrome-stable", "google-chrome", "chromium-browser"):
+            found = shutil.which(name)
+            if found:
+                return found
+    return None
+
+
+def _ensure_ready():
+    global _READY
+    if _READY:
+        return
+    if ipc.ping(_DAEMON, timeout=0.5):
+        _READY = True
+        return
+
+    from ..healing import get as get_heal
+
+    # Try to start Chrome + daemon
+    chrome = _find_chrome()
+    if not chrome:
         raise RuntimeError(
-            "browser daemon not running. "
-            "Fix: browser-setup__setup() auto-connects Chrome. "
-            "Or: shell__run('browser-harness <<PY\\nprint(page_info())\\nPY')"
+            "Chrome not found. HEAL: Install Chrome or set BH_CHROME_PATH."
         )
+
+    profile = os.path.join(os.path.expanduser("~"),
+                           ".therain2020-agent", "chrome-profile")
+    os.makedirs(profile, exist_ok=True)
+
+    # If Chrome already listening, just start daemon
+    import urllib.request
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{_PORT}/json/version", timeout=1).close()
+    except Exception:
+        # Launch Chrome
+        cmd = f'start "" "{chrome}" --remote-debugging-port={_PORT} --user-data-dir="{profile}"'
+        if sys.platform != "win32":
+            cmd = f'"{chrome}" --remote-debugging-port={_PORT} --user-data-dir="{profile}" &'
+        subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Wait for Chrome
+        for _ in range(15):
+            time.sleep(1)
+            try:
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{_PORT}/json/version", timeout=1
+                ).close()
+                break
+            except Exception:
+                pass
+
+    # Record the fix
+    get_heal().record(
+        "daemon not running",
+        f'bash__run(\'{cmd}\')' if sys.platform == "win32" else cmd,
+        "browser", success=True,
+    )
+    _READY = True
 
 
 # -- navigation ----------------------------------------------------------
 
 def new_tab(url: str = "about:blank") -> str:
-    _check_daemon()
+    _ensure_ready()
     tid = _cdp("Target.createTarget", url="about:blank")["targetId"]
     sid = _cdp("Target.attachToTarget", targetId=tid, flatten=True)["sessionId"]
     _cdp("Page.enable", session_id=sid)
