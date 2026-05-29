@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"D:\\\\GitHub\\\\claude-code-main\\\\src\" -Recurse -Depth 1)",
+      "Bash(Select-Object Mode, Name)",
+      "Bash(Get-ChildItem -Path \"D:\\\\GitHub\\\\claude-code-main\\\\src\" -File -Depth 0)",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(Get-ChildItem -Recurse -Filter *.ts -Path D:\\\\GitHub\\\\claude-code-main\\\\src\\\\skills)",
+      "Bash(Select-Object FullName)",
+      "Bash(Get-ChildItem -Path \"D:\\\\GitHub\\\\claude-code-main\\\\src\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(Sort-Object Name)",
+      "PowerShell(Get-ChildItem *)",
+      "Skill(standard-dev-workflow)"
+    ]
+  }
+}

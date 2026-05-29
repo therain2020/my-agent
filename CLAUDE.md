@@ -1,153 +1,64 @@
-# CLAUDE.md — therain2020-agent
+# CLAUDE.md
 
-## Design Reference
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-设计文档和方案讨论位于飞书知识库: https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651
+## Overview
 
-| # | 文件 | 主题 |
-|---|------|------|
-| 01 | agent-structure.md | Agent 结构设计 |
-| 02 | agent-loop.md | Agent 事件循环 |
-| 03 | two-modes.md | TODO / Goal 双模式 |
-| 04 | long-term-memory.md | 长期记忆系统 |
-| 05 | dont-do-set.md | 非集设计 |
-| 06 | supplemental-requirements.md | 补充需求 |
-| 07 | interrupt-signal.md | 中断信号机制 |
-| 08 | tool-registration.md | 工具注册与发现 |
-| 09 | dont-do-storage.md | 非集存储方案 |
-| 10 | memory-consolidation.md | 记忆整合 |
-| 11 | system-architecture.md | 系统架构总览（OS 内核类比映射）|
-| 12 | error-recovery.md | 错误恢复机制 |
-| 13 | tech-stack.md | 技术栈选型 |
-| 14 | context-window.md | 上下文窗口管理 |
-| 15 | prompt-assembly.md | 提示组装器设计 |
-| 16 | session-management.md | 会话管理 |
-| 17 | observability.md | 可观测性 |
-| 18 | security-threat-model.md | 安全威胁模型 |
-| 19 | evaluation.md | 评估基准 |
-| 20 | multi-agent.md | 多代理协作 |
-| 21 | phase-one-plan.md | Phase 1 实施计划（Add-First Agent v0.1）|
-| 22 | release-workflow.md | 发布流程 |
-| 23 | semantic-memory-consolidation-v2.md | 语义记忆整合 V2 |
-| 24 | goal-mode.md | Goal 模式设计 |
-| 25 | dont-do-engine-v2.md | 非集引擎 V2（iptables 风格）|
-| 26 | provider-failover-security.md | Provider 故障转移和安全 |
-| 27 | phase-two-plan.md | Phase 2 实施计划（记忆与安全深化）|
-| 28 | publish-marketplace.md | 发布与市场 |
-| 29 | cost-routing.md | 成本路由 |
-| 30 | phase-three-plan.md | Phase 3 实施计划（质量与协作）|
+This is **therain2020-agent** — a self-healing, self-evolving AI agent based on Claude Code architecture.
 
-## Project Docs
+- **Language**: TypeScript (strict)
+- **Runtime**: [Bun](https://bun.sh)
+- **Terminal UI**: React + [Ink](https://github.com/vadimdemedes/ink)
+- **CLI Parsing**: Commander.js (`@commander-js/extra-typings`)
+- **Schema Validation**: Zod v4 (`zod/v4`)
+- **API**: Anthropic SDK (`@anthropic-ai/sdk`)
 
-项目文档同样位于飞书知识库：https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651
+## Core Architecture
 
-| 文件 | 主题 |
-|------|------|
-| comprehensive-evaluation-plan.md | 多角度综合评估与路线图（10 方向 × 7 维度评估）|
-| improvement-plan-1-2-3-merged.md | 完整优化方案合并版（架构差距 + BH 启发 + 最终选型）|
-| improvement-plan-1.md | 原始架构差距分析（一～八：非集/角色/纠正/验证/TODO/记忆/文献）|
-| improvement-plan-2.md | BH 启发优化方案探索（九～十四：自愈/静默检测/压缩/技能/调度/浏览器）|
-| improvement-plan-3.md | 最终实施方案（九-C×十-A 协同 + 4 Phase 代码级设计 + 路线图）|
-| cli-ux-upgrade-plan.md | CLI UX 升级方案（流式输出 + 思考模式 + Rich 渲染）|
+### Self-Modification System
 
-## 行为规则
+The agent CAN modify its own source code. This is the foundation of self-healing and self-evolution.
 
-- 当用户讨论设计方案、架构决策或新需求时，主动查阅设计文档作为上下文参考
-- 设计文档位于 `D:\GitHub\agent-design\temp\`（本地）和飞书知识库（远程共享）
-- 当用户提出"像之前讨论的那样"或"按照设计来"时，先到设计文档目录确认原意再执行
-- 设计文档是设计阶段的产物，当前实现可能已有偏差。以代码为准，设计文档仅供理解原始意图
+- `src/services/SelfModService/SelfModService.ts` — Central engine: permission mode switching, heal/evolve orchestration, journal logging
+- `src/services/SelfModService/Sandbox.ts` — Safe modification: checkpoint, worktree, rebuild, rollback
+- `src/services/SelfModService/EvolutionLoop.ts` — Evolution pipeline: gap → design → generate → integrate → verify
+- `src/services/DynamicToolRegistry.ts` — Runtime tool loading from `~/.claude/dynamic-tools/*.ts`
+- `src/services/EvolvedPromptStore.ts` — System prompt evolution storage
+- `src/services/CapabilityGapDetector.ts` — Gap detection + auto-trigger
 
-## Project Architecture
+### Permission System Changes
 
-核心模块按 OS 内核类比组织:
+Modified from original Claude Code to support self-modification:
 
-| 模块 | 类比 |
-|------|------|
-| `agent/core.py` | Process scheduler — TODO/Goal event loop, dont-do enrichment, capability recording |
-| `agent/objects.py` | VFS inode + xattrs — Ontology object (Data+Logic+Actions+Relations) |
-| `agent/role.py` | seccomp profile — Structured role with constraint/action generation |
-| `agent/dont_do.py` | iptables netfilter — Hook-based rule engine, path-aware context |
-| `agent/correction.py` | auditd + rule gen — User feedback to dont-do rule closed loop |
-| `agent/events.py` | journald — 11 event types for Event Sourcing |
-| `agent/event_store.py` | ext4 journal — Append-only event log, snapshot, in-process pub/sub |
-| `agent/memory.py` | ext4 journal (SQLite WAL) — Episodic + semantic, FTS5 |
-| `agent/consolidation.py` | kswapd + LFS cleaner — LLM-driven episodic→semantic |
-| `agent/pattern_miner.py` | KSM (same-page merging) — Cross-episode pattern discovery |
-| `agent/memory_migrations.py` | Alembic-style — Versioned schema migration |
-| `agent/prompt.py` | ELF loader — Prompt assembly + ontology context injection |
-| `agent/context.py` | MMU + page replacement — LRU context window management |
-| `agent/context_compressor.py` | zswap + KSM — Semantic-aware compression, never touches procedural instructions |
-| `agent/output_format.py` | syslog format enforcer — Citation rules, progressive disclosure |
-| `agent/providers/pool.py` | RAID 1 + multipath — Provider failover with circuit breaker |
-| `agent/providers/router.py` | ondemand cpufreq + NUMA — Cost + capability-aware routing |
-| `agent/providers/capability.py` | CPU affinity — Jagged Frontier model profiling |
-| `agent/tools/registry.py` | udev — Tool registration, lookup by object type |
-| `agent/tools/executor.py` | execve — Tool execution, credential injection, verification hooks |
-| `agent/tools/evolution.py` | kpatch — Runtime tool patching with git version control |
-| `agent/tools/editor.py` | ptrace — Agent tool editing interface (add verify, add helper) |
-| `agent/tools/supervisor.py` | systemd — MCP process lifecycle management |
-| `agent/tools/adapters/` | filesystem drivers — 10 ecosystem adapters (incl. browser harness) |
-| `agent/tools/browser/` | kthread — CDP daemon, screenshot-first interaction, coordinate-click default |
-| `agent/skills/` | shared libraries + ld.so.cache — Social learning network, PII gating, auto-retirement |
-| `agent/security/` | LSM + keyring — Credential guard, prompt injection defense |
+- `src/utils/permissions/filesystem.ts` — `.claude/` removed from DANGEROUS_DIRECTORIES, added self-modification bypass
+- `src/types/permissions.ts` — Added `selfModify` PermissionMode
 
-## 常规命令
+### Tool System
 
-```bash
-# 测试 (302 tests)
-pytest tests/ -v
+- `src/Tool.ts` — Tool type definitions
+- `src/tools.ts` — Tool registry, `assembleToolPool()` now includes dynamic tools
+- `src/tools/SelfHealTool.ts` — Agent calls this to trigger self-healing
+- `src/tools/EvolveTool.ts` — Agent calls this to trigger self-evolution
 
-# Lint
-ruff check agent/ tests/
+### Evolution Tiers
 
-# 构建
-python -m build
-```
+| Tier | Target | Mechanism |
+|------|--------|-----------|
+| 1 | `.claude/skills/{name}/SKILL.md` | Auto-discovered by `discoverSkillDirsForPaths()` |
+| 2 | `~/.claude/dynamic-tools/{name}.ts` | Loaded by `DynamicToolRegistry.import()` |
+| 3 | Core engine (`src/tools/`, `src/services/`) | Worktree isolate → edit → build → restart |
 
-## Network
+### Key Files Modified from Original
 
-此环境联网需代理。代理地址从系统环境变量 `net_proxy` 读取。
+1. `src/tools.ts` — DynamicRegistry integration in `assembleToolPool()`
+2. `src/utils/permissions/filesystem.ts` — Self-modification permission bypass
+3. `src/types/permissions.ts` — `selfModify` PermissionMode
+4. `src/constants/prompts.ts` — SELF_MODIFY_CAPABILITY system prompt section
+5. `src/memdir/memoryTypes.ts` — `selfheal` and `evolution` memory types
 
-```bash
-# 使用方式。$env:net_proxy 值类似 http://127.0.0.1:7890
-curl --proxy $net_proxy ...
-pip install --proxy $net_proxy ...
-```
+## Code Conventions
 
-## Release Flow
-
-```
-1. python scripts/bump_version.py patch|minor|major
-2. Update CHANGELOG.md
-3. git checkout -b feat/release-vX.Y.Z
-4. git add ... && git commit && git push && gh pr create
-5. 等 CI 全绿 → merge PR
-6. CI 自动: 读 pyproject.toml 版本号 → git tag vX.Y.Z → build
-   → GitHub Release（含 release notes）→ PyPI 发布
-```
-
-Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远一致。不需要手动打 tag。
-
-### Release Verification
-
-每次发布后验证三步：
-
-```bash
-# 1. 确认 GitHub Actions
-gh run list -w release.yml --limit 1
-
-# 2. 确认 PyPI 版本
-python -c "import urllib.request,json; d=json.loads(urllib.request.urlopen('https://pypi.org/pypi/therain2020-agent/json').read()); print(d['info']['version'])"
-
-# 3. 干净环境安装测试
-python -m venv /tmp/test-pypi
-/tmp/test-pypi/Scripts/pip install --proxy $env:net_proxy \
-  therain2020-agent==<version>
-/tmp/test-pypi/Scripts/python -c "import agent; print(agent.__version__)"
-rm -rf /tmp/test-pypi
-```
-
-## 行为规则
-
-- 网络操作走 `$env:net_proxy` 代理（由系统环境变量配置），不要再问
-- 发布后自动执行三步验证，不要再问
+- `.js` extensions on imports even for `.tsx` files
+- `buildTool()` factory for standard tool construction
+- `systemPromptSection()` for system prompt extensions
+- File-based storage in `~/.claude/` for persistence
