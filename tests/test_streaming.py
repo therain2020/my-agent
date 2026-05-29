@@ -16,10 +16,16 @@ def test_text_event():
 
 
 def test_tool_start_event():
-    e = StreamEvent.tool_start("read_file", "read")
+    e = StreamEvent.tool_start("read_file", {"path": "/tmp/test.txt"})
     assert e.type == StreamEventType.TOOL_START
     assert e.tool_name == "read_file"
-    assert e.capability == "read"
+    assert e.arguments == {"path": "/tmp/test.txt"}
+
+
+def test_tool_start_no_args():
+    e = StreamEvent.tool_start("list_tabs", None)
+    assert e.type == StreamEventType.TOOL_START
+    assert e.arguments == {}
 
 
 def test_tool_result_event():

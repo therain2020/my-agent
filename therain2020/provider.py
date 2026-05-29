@@ -20,6 +20,7 @@ class TaskComplexity(Enum):
 @dataclass
 class LLMResponse:
     content: str
+    reasoning: str = ""          # thinking/reasoning tokens (DeepSeek R1, o1, Claude thinking)
     tool_calls: list[dict] | None = None
     finish_reason: str = "stop"
     model: str = ""
@@ -103,6 +104,7 @@ async def _complete_openai(model, messages, tools, max_tokens, base_url, api_key
         ]
     return LLMResponse(
         content=choice.message.content or "",
+        reasoning=getattr(choice.message, "reasoning_content", "") or "",
         tool_calls=tool_calls,
         finish_reason=choice.finish_reason or "stop",
         model=resp.model,
@@ -134,10 +136,13 @@ async def _complete_anthropic(model, messages, tools, max_tokens, api_key):
         ]
     resp = await client.messages.create(**kw)
     text = ""
+    reasoning = ""
     tool_calls = None
     for block in resp.content:
         if block.type == "text":
             text += block.text
+        elif block.type == "thinking":
+            reasoning += getattr(block, "thinking", "") or getattr(block, "text", "")
         elif block.type == "tool_use":
             if tool_calls is None:
                 tool_calls = []
@@ -147,6 +152,7 @@ async def _complete_anthropic(model, messages, tools, max_tokens, api_key):
             })
     return LLMResponse(
         content=text,
+        reasoning=reasoning,
         tool_calls=tool_calls,
         finish_reason="tool_calls" if tool_calls else resp.stop_reason,
         model=resp.model,

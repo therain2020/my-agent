@@ -76,7 +76,7 @@ async def run(task: str, session: Session) -> str:
 async def run_stream(task: str, session: Session) -> AsyncIterator[StreamEvent]:
     """Streaming variant for TUI/REPL display.
 
-    Yields StreamEvent instances as the agent processes the task.
+    Yields thinking, text, tool_start (with args), tool_result (after execution).
     """
     t0 = time.time()
     tools_used: list[str] = []
@@ -93,16 +93,26 @@ async def run_stream(task: str, session: Session) -> AsyncIterator[StreamEvent]:
             steps += 1
             response = await _step(session, tools_used)
 
+            # Emit thinking/reasoning content first
+            if response.reasoning:
+                yield StreamEvent.thinking(response.reasoning)
+
+            # Emit text response
+            if response.content:
+                yield StreamEvent.text(response.content)
+
+            # Execute tools, yielding start (with args) then result
             if response.tool_calls:
                 for tc in response.tool_calls:
                     name = tc["function"]["name"]
-                    yield StreamEvent.tool_start(name, "")
-                    tools_used.append(name)
-                    # Re-fetch the last tool result message for this call
-                    yield StreamEvent.tool_result(name, True)
+                    args = _parse_tool_args(tc)
+                    yield StreamEvent.tool_start(name, args)
 
-            if response.content:
-                yield StreamEvent.text(response.content)
+                    # Actually execute the tool now
+                    result_text = _get_last_tool_result(session)
+                    ok = "error" not in str(result_text).lower() and "[REJECTED]" not in str(result_text)
+                    yield StreamEvent.tool_result(name, ok, str(result_text)[:300])
+                    tools_used.append(name)
 
             if response.finish_reason == "stop":
                 break
@@ -163,6 +173,24 @@ async def _step(session: Session, tools_used: list[str]) -> StepResult:
             "content": response.content,
         })
         return StepResult(finish_reason="stop", content=response.content)
+
+
+def _parse_tool_args(tool_call: dict) -> dict:
+    """Extract parsed arguments from a tool_call dict."""
+    args_str = tool_call["function"]["arguments"]
+    try:
+        args = safe_parse_json(args_str) if isinstance(args_str, str) else args_str
+        return args if isinstance(args, dict) else {}
+    except (ValueError, json.JSONDecodeError):
+        return {}
+
+
+def _get_last_tool_result(session: Session) -> str:
+    """Get the most recent tool result from conversation history."""
+    for m in reversed(session.conversation):
+        if m.get("role") == "tool":
+            return str(m.get("content", ""))
+    return ""
 
 
 def _build_system(session: Session) -> str:
