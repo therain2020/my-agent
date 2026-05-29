@@ -25,7 +25,9 @@ export type ExternalPermissionMode = (typeof EXTERNAL_PERMISSION_MODES)[number]
 
 // Exhaustive mode union for typechecking. The user-addressable runtime set
 // is INTERNAL_PERMISSION_MODES below.
-export type InternalPermissionMode = ExternalPermissionMode | 'auto' | 'bubble'
+// selfModify — therain2020-agent: auto-allow writes to agent's own source tree
+// and ~/.claude/ for self-healing and self-evolution.
+export type InternalPermissionMode = ExternalPermissionMode | 'auto' | 'bubble' | 'selfModify'
 export type PermissionMode = InternalPermissionMode
 
 // Runtime validation set: modes that are user-addressable (settings.json

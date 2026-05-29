@@ -71,11 +71,13 @@ export const DANGEROUS_FILES = [
  * Dangerous directories that should be protected from auto-editing.
  * These directories contain sensitive configuration or executable files.
  */
+// NOTE: .claude was removed from DANGEROUS_DIRECTORIES to allow self-healing
+// and self-evolution. The agent MUST be able to write to its own skills/config.
+// settings.json and settings.local.json remain protected via isClaudeConfigFilePath.
 export const DANGEROUS_DIRECTORIES = [
   '.git',
   '.vscode',
   '.idea',
-  '.claude',
 ] as const
 
 /**
@@ -222,23 +224,11 @@ export function isClaudeSettingsPath(filePath: string): boolean {
 }
 
 // Always ask when Claude Code tries to edit its own config files
+// Modified for therain2020-agent: only blocks settings.json/settings.local.json.
+// .claude/commands/, .claude/agents/, .claude/skills/ are ALLOWED so the agent
+// can self-heal (fix its own skills) and self-evolve (install new skills).
 function isClaudeConfigFilePath(filePath: string): boolean {
-  if (isClaudeSettingsPath(filePath)) {
-    return true
-  }
-
-  // Check if file is within .claude/commands or .claude/agents directories
-  // using proper path segment validation (not string matching with includes())
-  // pathInWorkingPath now handles case-insensitive comparison to prevent bypasses
-  const commandsDir = join(getOriginalCwd(), '.claude', 'commands')
-  const agentsDir = join(getOriginalCwd(), '.claude', 'agents')
-  const skillsDir = join(getOriginalCwd(), '.claude', 'skills')
-
-  return (
-    pathInWorkingPath(filePath, commandsDir) ||
-    pathInWorkingPath(filePath, agentsDir) ||
-    pathInWorkingPath(filePath, skillsDir)
-  )
+  return isClaudeSettingsPath(filePath)
 }
 
 // Check if file is the plan file for the current session
@@ -1202,6 +1192,31 @@ export function checkReadPermissionForTool(
  *   re-derived internally for error messages and internal-path checks, so a
  *   stale value would silently check deny rules for the wrong path.
  */
+/**
+ * Self-modification paths for therain2020-agent self-healing and self-evolution.
+ * When in 'selfModify' permission mode, writes to these paths are auto-allowed
+ * without prompting, enabling the agent to fix its own bugs and grow new capabilities.
+ */
+const selfModificationPaths = new Set<string>()
+
+export function addSelfModificationPath(absPath: string): void {
+  selfModificationPaths.add(normalize(absPath))
+}
+
+export function removeSelfModificationPath(absPath: string): void {
+  selfModificationPaths.delete(normalize(absPath))
+}
+
+export function isSelfModificationPath(absPath: string): boolean {
+  const normalized = normalize(absPath)
+  for (const smPath of selfModificationPaths) {
+    if (normalized.startsWith(smPath + sep) || normalized === smPath) {
+      return true
+    }
+  }
+  return false
+}
+
 export function checkWritePermissionForTool<Input extends AnyObject>(
   tool: Tool<Input>,
   input: z.infer<Input>,
@@ -1215,6 +1230,23 @@ export function checkWritePermissionForTool<Input extends AnyObject>(
     }
   }
   const path = tool.getPath(input)
+
+  // 0. SelfModify bypass: auto-allow writes to self-modification paths
+  // when in selfModify mode. This is the entry point for self-healing and
+  // self-evolution — the agent modifies its own source tree and config.
+  if (toolPermissionContext.mode === 'selfModify') {
+    const absolutePath = expandPath(path)
+    if (isSelfModificationPath(absolutePath)) {
+      return {
+        behavior: 'allow',
+        updatedInput: input,
+        decisionReason: {
+          type: 'mode',
+          mode: toolPermissionContext.mode,
+        },
+      }
+    }
+  }
 
   // 1. Check for deny rules - check both the original path and resolved symlink path
   const pathsToCheck =

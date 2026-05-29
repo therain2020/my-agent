@@ -16,6 +16,8 @@ export const MEMORY_TYPES = [
   'feedback',
   'project',
   'reference',
+  'selfheal',
+  'evolution',
 ] as const
 
 export type MemoryType = (typeof MEMORY_TYPES)[number]

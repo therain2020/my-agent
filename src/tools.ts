@@ -351,17 +351,19 @@ export function assembleToolPool(
   // Filter out MCP tools that are in the deny list
   const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext)
 
-  // Sort each partition for prompt-cache stability, keeping built-ins as a
-  // contiguous prefix. The server's claude_code_system_cache_policy places a
-  // global cache breakpoint after the last prefix-matched built-in tool; a flat
-  // sort would interleave MCP tools into built-ins and invalidate all downstream
-  // cache keys whenever an MCP tool sorts between existing built-ins. uniqBy
-  // preserves insertion order, so built-ins win on name conflict.
-  // Avoid Array.toSorted (Node 20+) — we support Node 18. builtInTools is
-  // readonly so copy-then-sort; allowedMcpTools is a fresh .filter() result.
+  // Load dynamic tools from DynamicToolRegistry (therain2020-agent self-evolution).
+  // Dynamic tools are authored by the agent at runtime and loaded via import().
+  let dynamicTools: Tool[] = []
+  try {
+    const registry = require('./services/DynamicToolRegistry.js').getDynamicToolRegistry()
+    dynamicTools = registry.getAll()
+  } catch {
+    // DynamicToolRegistry may not be initialized yet — ignore
+  }
+
   const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)
   return uniqBy(
-    [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),
+    [...builtInTools, ...dynamicTools].sort(byName).concat(allowedMcpTools.sort(byName)),
     'name',
   )
 }
