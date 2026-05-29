@@ -1116,7 +1116,7 @@ async function buildImageContentBlocks(
       }
       const resized = await maybeResizeAndDownsampleImageBlock(imageBlock)
       return resized.block
-    ,
+    })
   )
   return results
 }
@@ -1207,7 +1207,7 @@ async function getPlanModeAttachments(
 
   // Check for re-entry: flag is set AND plan file exists
   if (hasExitedPlanModeInSession() && existingPlan !== null) {
-    attachments.push({ type: 'plan_mode_reentry', planFilePath 
+    attachments.push({ type: 'plan_mode_reentry', planFilePath: existingPlan })
     setHasExitedPlanMode(false) // Clear flag - one-time guidance
   }
 
@@ -1229,7 +1229,7 @@ async function getPlanModeAttachments(
     isSubAgent: !!toolUseContext.agentId,
     planFilePath,
     planExists: existingPlan !== null,
-  
+  })
 
   return attachments
 }
@@ -1440,7 +1440,7 @@ function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
   if (!isUltrathinkEnabled() || !input || !hasUltrathinkKeyword(input)) {
     return []
   }
-  logEvent('tengu_ultrathink', {
+  logEvent('tengu_ultrathink', { level: 'high' })
   return [{ type: 'ultrathink_effort', level: 'high' }]
 }
 
