@@ -23,4 +23,4 @@ jobs:
       - name: Run tests
         run: pytest tests/ -v
       - name: Lint
-        run: ruff check agent/ tests/
+        run: ruff check therain2020/ tests/
