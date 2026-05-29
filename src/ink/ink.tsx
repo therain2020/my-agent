@@ -178,23 +178,31 @@ export default class Ink {
     y: number;
   } | null = null;
   constructor(private readonly options: Options) {
+    process.stderr.write("[INK:1]\n")
     autoBind(this);
+    process.stderr.write("[INK:1a]\n")
     if (this.options.patchConsole) {
       this.restoreConsole = this.patchConsole();
-      this.restoreStderr = this.patchStderr();
+      // patchStderr crashes Bun on Windows — skip
+      if (process.platform !== 'win32') {
+        this.restoreStderr = this.patchStderr();
+      } else {
+        this.restoreStderr = undefined;
+      }
     }
-    this.terminal = {
-      stdout: options.stdout,
-      stderr: options.stderr
-    };
+    process.stderr.write("[INK:1b]\n")
+    this.terminal = { stdout: options.stdout, stderr: options.stderr };
     this.terminalColumns = options.stdout.columns || 80;
     this.terminalRows = options.stdout.rows || 24;
     this.altScreenParkPatch = makeAltScreenParkPatch(this.terminalRows);
+    process.stderr.write("[INK:1c]\n")
     this.stylePool = new StylePool();
     this.charPool = new CharPool();
     this.hyperlinkPool = new HyperlinkPool();
+    process.stderr.write("[INK:1d]\n")
     this.frontFrame = emptyFrame(this.terminalRows, this.terminalColumns, this.stylePool, this.charPool, this.hyperlinkPool);
     this.backFrame = emptyFrame(this.terminalRows, this.terminalColumns, this.stylePool, this.charPool, this.hyperlinkPool);
+    process.stderr.write("[INK:2]\n")
     this.log = new LogUpdate({
       isTTY: options.stdout.isTTY as boolean | undefined || false,
       stylePool: this.stylePool
@@ -234,6 +242,7 @@ export default class Ink {
     this.focusManager = new FocusManager((target, event) => dispatcher.dispatchDiscrete(target, event));
     this.rootNode.focusManager = this.focusManager;
     this.renderer = createRenderer(this.rootNode, this.stylePool);
+    process.stderr.write("[INK:3]\n")
     this.rootNode.onRender = this.scheduleRender;
     this.rootNode.onImmediateRender = this.onRender;
     this.rootNode.onComputeLayout = () => {

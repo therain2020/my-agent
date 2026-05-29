@@ -1,9 +1,8 @@
 import { useMemo } from 'react'
 import { useAppState } from '../state/AppState.js'
-import {
-  hasVoiceAuth,
-  isVoiceGrowthBookEnabled,
-} from '../voice/voiceModeEnabled.js'
+// voice removed
+const hasVoiceAuth = () => false
+const isVoiceGrowthBookEnabled = () => false
 
 /**
  * Combines user intent (settings.voiceEnabled) with auth + GB kill-switch.
