@@ -49,11 +49,22 @@ class AgentRepl:
         self.turn += 1
         t0 = time.time()
         steps = 0
+        _first_event = True
 
         try:
             session = create_session(task=task)
             print()
+
+            # Show waiting indicator during LLM call
+            sys.stdout.write("  …")
+            sys.stdout.flush()
+
             async for event in run_stream(task, session):
+                if _first_event:
+                    _first_event = False
+                    sys.stdout.write("\r")  # clear the "…"
+                    sys.stdout.flush()
+
                 if event.type == StreamEventType.THINKING:
                     self._show_thinking(event.content)
                 elif event.type == StreamEventType.TEXT:
@@ -66,6 +77,7 @@ class AgentRepl:
                     print(f"\nError: {event.error_msg}")
                 elif event.type == StreamEventType.DONE:
                     steps = event.steps
+
             elapsed = time.time() - t0
             print(f"\nDone — {steps} steps, {elapsed:.1f}s\n")
             session.memory.close()
@@ -74,7 +86,6 @@ class AgentRepl:
 
     @staticmethod
     def _show_thinking(content: str):
-        """Show reasoning content dimmed."""
         for line in content.strip().split("\n"):
             print(f"  \x1b[2m{line}\x1b[0m", flush=True)
 
