@@ -122,26 +122,48 @@ class Repl:
             session = create_session(task=task)
             self._model = session.provider.model
             self._pending_thinking = ""
+            _thinking_shown = False
+
+            # Show waiting indicator during LLM call
+            sys.stdout.write(f"  {DIM}···{RESET}")
+            sys.stdout.flush()
+            _first = True
 
             async for event in run_stream(task, session):
+                if _first:
+                    _first = False
+                    sys.stdout.write(CLEAR_LINE)
+                    sys.stdout.flush()
+
                 if event.type == EventType.THINKING:
                     if self._thinking_visible:
-                        for line in event.content.strip().split("\n"):
+                        if not _thinking_shown:
+                            print()
+                        for line in event.content.strip().split("\n")[:8]:
                             print(f"  {DIM}{line}{RESET}", flush=True)
+                        _thinking_shown = True
                     else:
                         self._pending_thinking += event.content
 
                 elif event.type == EventType.TEXT:
-                    if not self._thinking_visible and self._pending_thinking:
-                        print(f"  {DIM}⋯ (thinking — {GRAY}Ctrl+O{RESET}{DIM} to expand){RESET}", flush=True)
+                    _thinking_shown = False
+                    if self._pending_thinking:
+                        print(f"  {DIM}⋯ (thinking · {GRAY}/think{RESET}{DIM} to expand){RESET}")
                         self._pending_thinking = ""
                     for line in event.content.strip().split("\n"):
-                        print(f"  {GRAY}⎿{RESET}  {line}", flush=True)
+                        print(f"\n  {GRAY}⎿{RESET}  {line}", flush=True)
 
                 elif event.type == EventType.TOOL_START:
+                    # Flush pending thinking before first tool of a step
+                    if self._pending_thinking:
+                        print(f"  {DIM}⋯ (thinking · {GRAY}/think{RESET}{DIM} to expand){RESET}")
+                        self._pending_thinking = ""
+                    _thinking_shown = False
                     args = event.arguments
-                    args_str = ", ".join(f"{k}={_trunc(repr(v), 50)}" for k, v in args.items())
-                    print(f"  {YELLOW}●{RESET} {event.tool_name}({args_str})", flush=True)
+                    args_str = ", ".join(
+                        f"{k}={_trunc(repr(v), 80)}" for k, v in args.items()
+                    )
+                    print(f"\n  {YELLOW}●{RESET} {event.tool_name}({args_str})", flush=True)
 
                 elif event.type == EventType.TOOL_RESULT:
                     mark = f"{GREEN}✓{RESET}" if event.ok else f"{RED}✗{RESET}"
@@ -149,7 +171,7 @@ class Repl:
                     print(f"  {mark} {summary}", flush=True)
 
                 elif event.type == EventType.ERROR:
-                    print(f"  {RED}Error: {event.content[:300]}{RESET}", flush=True)
+                    print(f"\n  {RED}Error: {event.content[:300]}{RESET}", flush=True)
 
                 elif event.type == EventType.DONE:
                     steps = event.steps
