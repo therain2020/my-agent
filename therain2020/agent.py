@@ -200,11 +200,14 @@ def _get_last_tool_result(session: Session) -> str:
 
 def _record_session(task: str, success: bool, steps: int,
                     tools: list[str], duration: float, error: str = ""):
-    """Persist session summary to Claude Code-style memory."""
+    """Persist session summary + fix recipe to memory."""
     try:
         from .memory_manager import MemoryManager
         mgr = MemoryManager()
         mgr.record_session(task, success, steps, tools, duration)
+        # If we used setup/fix tools, record the recipe
+        if any("setup" in t or "shell" in t for t in tools):
+            mgr.record_fix(task, f"Used: {', '.join(tools)}")
         if error:
             mgr.record_learning("error", error, task)
     except Exception:
