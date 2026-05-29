@@ -101,7 +101,6 @@ import { getActiveAgentsFromList, getAgentDefinitionsWithOverrides, isBuiltInAge
 import type { LogOption } from './types/logs.js';
 import type { Message as MessageType } from './types/message.js';
 import { assertMinVersion } from './utils/autoUpdater.js';
-// claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
 import { getContextWindowForModel } from './utils/context.js';
 import { loadConversationForResume } from './utils/conversationRecovery.js';
 import { buildDeepLinkBanner } from './utils/deepLink/banner.js';
@@ -131,6 +130,7 @@ import { getInitialSettings, getManagedSettingsKeysForLogging, getSettingsForSou
 import { resetSettingsCache } from './utils/settings/settingsCache.js';
 import type { ValidationError } from './utils/settings/validation.js';
 import { DEFAULT_TASKS_MODE_TASK_LIST_ID, TASK_STATUSES } from './utils/tasks.js';
+// pluginTelemetry + skillLoadedEvent removed — telemetry deleted
 import { generateTempFilePath } from './utils/tempfile.js';
 import { validateUuid } from './utils/uuid.js';
 // Plugin startup checks are now handled non-blockingly in REPL.tsx
@@ -145,7 +145,6 @@ import { excludeCommandsByServer, excludeResourcesByServer } from 'src/services/
 import { isXaaEnabled } from 'src/services/mcp/xaaIdpLogin.js';
 import { getRelevantTips } from 'src/services/tips/tipRegistry.js';
 import { logContextMetrics } from 'src/utils/api.js';
-// claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
 import { registerCleanup } from 'src/utils/cleanupRegistry.js';
 import { eagerParseCliFlag } from 'src/utils/cliArgs.js';
 import { createEmptyAttributionState } from 'src/utils/commitAttribution.js';
@@ -162,6 +161,7 @@ import { setCwd } from 'src/utils/Shell.js';
 import { type ProcessedResume, processResumedConversation } from 'src/utils/sessionRestore.js';
 import { parseSettingSourcesFlag } from 'src/utils/settings/constants.js';
 import { plural } from 'src/utils/stringUtils.js';
+import { type ChannelEntry, getInitialMainLoopModel, getIsNonInteractiveSession, getSdkBetas, getSessionId, getUserMsgOptIn, setAllowedChannels, setAllowedSettingSources, setChromeFlagOverride, setClientType, setCwdState, setDirectConnectServerUrl, setFlagSettingsPath, setInitialMainLoopModel, setInlinePlugins, setIsInteractive, setKairosActive, setOriginalCwd, setQuestionPreviewFormat, setSdkBetas, setSessionBypassPermissionsMode, setSessionPersistenceDisabled, setSessionSource, setUserMsgOptIn, switchSession } from './bootstrap/state.js';
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const autoModeStateModule = feature('TRANSCRIPT_CLASSIFIER') ? require('./utils/permissions/autoModeState.js') as typeof import('./utils/permissions/autoModeState.js') : null;
@@ -182,6 +182,7 @@ import { createRemoteSessionConfig } from './remote/RemoteSessionManager.js';
 /* eslint-enable @typescript-eslint/no-require-imports */
 // teleportWithProgress dynamically imported at call site
 import { createDirectConnectSession, DirectConnectError } from './server/createDirectConnectSession.js';
+// LSP removed
 import { shouldEnablePromptSuggestion } from './services/PromptSuggestion/promptSuggestion.js';
 import { type AppState, getDefaultAppState, IDLE_SPECULATION_STATE } from './state/AppStateStore.js';
 import { onChangeAppState } from './state/onChangeAppState.js';
@@ -1463,14 +1464,7 @@ async function run(): Promise<CommanderCommand> {
         // SDK hosts (Nest/Desktop) own their server naming and may reuse
         // built-in names — skip reserved-name checks for type:'sdk'.
         const nonSdkConfigNames = Object.entries(allConfigs).filter(([, config]) => config.type !== 'sdk').map(([name]) => name);
-        let reservedNameError: string | null = null;
-        // Computer Use MCP removed — macOS-only feature
-        if (reservedNameError) {
-          // stderr+exit(1) — a throw here becomes a silent unhandled
-          // rejection in stream-json mode (void main() in cli.tsx).
-          process.stderr.write(`Error: ${reservedNameError}\n`);
-          process.exit(1);
-        }
+        // Reserved MCP name checks removed — ClaudeInChrome + ComputerUse removed
 
         // Add dynamic scope to all configs. type:'sdk' entries pass through
         // unchanged — they're extracted into sdkMcpConfigs downstream and
@@ -1504,9 +1498,7 @@ async function run(): Promise<CommanderCommand> {
       }
     }
 
-    // claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution.
-    // The agent uses CdpTransport (src/services/CdpTransport.ts) to connect directly
-    // to Chrome's --remote-debugging-port and self-evolves CDP tools as needed.
+    // ClaudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
 
     // Extract strict MCP config flag
     const strictMcpConfig = options.strictMcpConfig || false;
@@ -1528,7 +1520,38 @@ async function run(): Promise<CommanderCommand> {
 
     // chicago MCP: guarded Computer Use (app allowlist + frontmost gate +
     // SCContentFilter screenshots). Ant-only, GrowthBook-gated — failures
-    // Computer Use MCP removed — macOS-only desktop automation (not CDP browser)
+    // are silent (this is dogfooding). Platform + interactive checks inline
+    // so non-macOS / print-mode ants skip the heavy @ant/computer-use-mcp
+    // import entirely. gates.js is light (type-only package import).
+    //
+    // Placed AFTER the enterprise-MCP-config check: that check rejects any
+    // dynamicMcpConfig entry with `type !== 'sdk'`, and our config is
+    // `type: 'stdio'`. An enterprise-config ant with the GB gate on would
+    // otherwise process.exit(1). Chrome has the same latent issue but has
+    // shipped without incident; chicago places itself correctly.
+    if (feature('CHICAGO_MCP') && getPlatform() === 'macos' && !getIsNonInteractiveSession()) {
+      try {
+        const {
+          getChicagoEnabled
+        } = await import('src/utils/computerUse/gates.js');
+        if (getChicagoEnabled()) {
+          const {
+            setupComputerUseMCP
+          } = await import('src/utils/computerUse/setup.js');
+          const {
+            mcpConfig,
+            allowedTools: cuTools
+          } = setupComputerUseMCP();
+          dynamicMcpConfig = {
+            ...dynamicMcpConfig,
+            ...mcpConfig
+          };
+          allowedTools.push(...cuTools);
+        }
+      } catch (error) {
+        logForDebugging(`[Computer Use MCP] Setup failed: ${errorMessage(error)}`);
+      }
+    }
 
     // Store additional directories for CLAUDE.md loading (controlled by env var)
     setAdditionalDirectoriesForClaudeMd(addDir);
@@ -2139,7 +2162,7 @@ async function run(): Promise<CommanderCommand> {
       });
       logForDebugging('[STARTUP] Running showSetupScreens()...');
       const setupScreensStart = Date.now();
-      const onboardingShown = await showSetupScreens(root, permissionMode, allowDangerouslySkipPermissions, commands, devChannels);
+      const onboardingShown = await showSetupScreens(root, permissionMode, allowDangerouslySkipPermissions, commands, enableClaudeInChrome, devChannels);
       logForDebugging(`[STARTUP] showSetupScreens() completed in ${Date.now() - setupScreensStart}ms`);
 
       // Now that trust is established and GrowthBook has auth headers,
@@ -2219,7 +2242,7 @@ async function run(): Promise<CommanderCommand> {
     // where trust is implicit). This prevents plugin LSP servers from executing
     // code in untrusted directories before user consent.
     // Must be after inline plugins are set (if any) so --plugin-dir LSP servers are included.
-    initializeLspServerManager();
+    // LSP removed
 
     // Show settings validation errors after trust is established
     // MCP config errors don't block settings from loading, so exclude them

@@ -14,10 +14,8 @@ import { getManagedPluginNames } from '../../utils/plugins/managedPlugins.js'
 import { parsePluginIdentifier } from '../../utils/plugins/pluginIdentifier.js'
 import type { PluginScope } from '../../utils/plugins/schemas.js'
 import { writeToStdout } from '../../utils/process.js'
-
-function buildPluginTelemetryFields(name: string, marketplace?: string, managed?: string[]): Record<string, unknown> { return {} }
+function buildPluginTelemetryFields(..._args: unknown[]): Record<string, unknown> { return {} }
 function classifyPluginCommandError(_err: unknown): string { return 'unknown' }
-
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_PII_TAGGED,

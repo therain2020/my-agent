@@ -36,3 +36,6 @@ export function initializeGrowthBook(): void {}
 export function refreshGrowthBookAfterAuthChange(): void {}
 export function checkGate_CACHED_OR_BLOCKING(): boolean { return false }
 export function hasGrowthBookEnvOverride(): boolean { return false }
+export function getDynamicConfig_BLOCKS_ON_INIT(): null { return null }
+export function checkSecurityRestrictionGate(): boolean { return false }
+export function resetGrowthBook(): void {}

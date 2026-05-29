@@ -32,6 +32,7 @@ import {
   isOfficialMarketplaceName,
   parsePluginIdentifier,
 } from 'src/utils/plugins/pluginIdentifier.js'
+const buildPluginCommandTelemetryFields = (..._args: unknown[]): Record<string, unknown> => ({})
 import { z } from 'zod/v4'
 import {
   addInvokedSkill,

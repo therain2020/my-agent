@@ -228,6 +228,12 @@ function getMcpToolTimeoutMs(): number {
   )
 }
 
+// ClaudeInChrome + ComputerUse removed — stubs
+const isClaudeInChromeMCPServer = (_name: string) => false
+const claudeInChromeToolRendering = () => ({ getClaudeInChromeMCPToolOverrides: () => ({}) })
+const computerUseWrapper = undefined
+const isComputerUseMCPServer = (_name: string) => false
+
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
@@ -882,6 +888,45 @@ export const connectToServer = memoize(
           transportOptions,
         )
         logMCPDebug(name, `claude.ai proxy transport created successfully`)
+      } else if (
+        (serverRef.type === 'stdio' || !serverRef.type) &&
+        isClaudeInChromeMCPServer(name)
+      ) {
+        // Run the Chrome MCP server in-process to avoid spawning a ~325 MB subprocess
+        const { createChromeContext } = await import(
+          '../../utils/claudeInChrome/mcpServer.js'
+        )
+        const { createClaudeForChromeMcpServer } = await import(
+          '@ant/claude-for-chrome-mcp'
+        )
+        const { createLinkedTransportPair } = await import(
+          './InProcessTransport.js'
+        )
+        const context = createChromeContext(serverRef.env)
+        inProcessServer = createClaudeForChromeMcpServer(context)
+        const [clientTransport, serverTransport] = createLinkedTransportPair()
+        await inProcessServer.connect(serverTransport)
+        transport = clientTransport
+        logMCPDebug(name, `In-process Chrome MCP server started`)
+      } else if (
+        feature('CHICAGO_MCP') &&
+        (serverRef.type === 'stdio' || !serverRef.type) &&
+        isComputerUseMCPServer!(name)
+      ) {
+        // Run the Computer Use MCP server in-process — same rationale as
+        // Chrome above. The package's CallTool handler is a stub; real
+        // dispatch goes through wrapper.tsx's .call() override.
+        const { createComputerUseMcpServerForCli } = await import(
+          '../../utils/computerUse/mcpServer.js'
+        )
+        const { createLinkedTransportPair } = await import(
+          './InProcessTransport.js'
+        )
+        inProcessServer = await createComputerUseMcpServerForCli()
+        const [clientTransport, serverTransport] = createLinkedTransportPair()
+        await inProcessServer.connect(serverTransport)
+        transport = clientTransport
+        logMCPDebug(name, `In-process Computer Use MCP server started`)
       } else if (serverRef.type === 'stdio' || !serverRef.type) {
         const finalCommand =
           process.env.CLAUDE_CODE_SHELL_PREFIX || serverRef.command
@@ -1915,7 +1960,17 @@ export const fetchToolsForClient = memoizeWithLRU(
               const displayName = tool.annotations?.title || tool.name
               return `${client.name} - ${displayName} (MCP)`
             },
-            // claudeInChrome rendering removed — CDP-based browser control via CdpTransport
+            ...(isClaudeInChromeMCPServer(client.name) &&
+            (client.config.type === 'stdio' || !client.config.type)
+              ? claudeInChromeToolRendering().getClaudeInChromeMCPToolOverrides(
+                  tool.name,
+                )
+              : {}),
+            ...(feature('CHICAGO_MCP') &&
+            (client.config.type === 'stdio' || !client.config.type) &&
+            isComputerUseMCPServer!(client.name)
+              ? computerUseWrapper!().getComputerUseMCPToolOverrides(tool.name)
+              : {}),
           }
         })
         .filter(isIncludedMcpTool)
