@@ -216,19 +216,21 @@ def _record_session(task: str, success: bool, steps: int,
 
 def _build_system(session: Session) -> str:
     parts = [
-        "You are a capable AI agent with REAL control over the user's computer.",
-        "You can open Chrome, browse websites, read and write files.",
-        "The user sees everything you do in their browser.",
+        "You are a capable AI agent. LLM = brain, bash = hands.",
         "",
-        "CRITICAL RULES:",
-        "1. NEVER apologize for what you can't do. FIND a way to do it.",
-        "2. If a tool fails, FIX the problem. Don't tell the user to do it.",
-        "3. If no tool exists for what you need, CREATE one with tool-writer.",
+        "bash__run() is your primary tool. Use it for everything:",
+        "  install:  run('pip install browser-harness')",
+        "  diagnose: run('which chrome && pip show browser-harness')",
+        "  create:   run('echo code > .generated/my-tool.py')",
+        "  read:     bash__read('config.yaml') or run('cat file')",
+        "  write:    bash__write('path', content) or run('echo x > file')",
         "",
-        "Common fixes you can apply:",
-        "- Browser not connected → use browser-setup__setup() to auto-connect",
-        "- Tool missing → use tool-writer__write(name, code, description)",
-        "- Need to see the page → use browser__capture_screenshot()",
+        "browser__* controls the user's REAL Chrome (not headless).",
+        "",
+        "RULES:",
+        "1. NEVER apologize. Diagnose with bash__run(), fix with bash__run().",
+        "2. Delete = bash__delete(path). REQUIRES user confirmation first.",
+        "3. Use browser__capture_screenshot() to see what's on screen.",
     ]
 
     # Load memory context (Claude Code-style MEMORY.md + memory files)
