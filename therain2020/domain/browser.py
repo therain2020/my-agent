@@ -107,36 +107,54 @@ def _chrome_listening() -> bool:
         return False
 
 
+def _launch_cmd(chrome: str, profile: str) -> str:
+    """Return the shell command to launch Chrome with debugging."""
+    return (
+        f'start "" "{chrome}" --remote-debugging-port={_PORT} '
+        f'--remote-allow-origins=* --user-data-dir="{profile}"'
+    )
+
+
 def _ensure_ready():
     global _WS, _SID, _MSG_ID
     if _WS and _WS.connected:
         return
 
-    # Find or launch Chrome
+    # Step 1: find Chrome
     if not _chrome_listening():
         chrome = _find_chrome()
         if not chrome:
-            raise RuntimeError("Chrome not found. Install Chrome or set BH_CHROME_PATH.")
+            raise RuntimeError(
+                "Chrome not found.\n\n"
+                "HEAL: Install Chrome, or if already installed:\n"
+                f'  bash__run(\'start "" "C:\\\\Program Files\\\\Google'
+                f'\\\\Chrome\\\\Application\\\\chrome.exe"'
+                f' --remote-debugging-port={_PORT}'
+                f' --remote-allow-origins=*\')\n'
+                f'Then retry.'
+            )
+
         profile = os.path.join(os.path.expanduser("~"),
                                ".therain2020-agent", "chrome-profile")
         os.makedirs(profile, exist_ok=True)
-        subprocess.Popen(
-            f'start "" "{chrome}" --remote-debugging-port={_PORT} '
-            f'--remote-allow-origins=* --user-data-dir="{profile}"',
-            shell=True,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        for i in range(30):
+        cmd = _launch_cmd(chrome, profile)
+
+        # Step 2: launch Chrome
+        subprocess.Popen(cmd, shell=True,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        for _ in range(30):
             time.sleep(1)
             if _chrome_listening():
                 break
-            if i == 29:
-                raise RuntimeError(
-                    "Chrome did not start within 30s. "
-                    "Close all Chrome windows and retry."
-                )
+        else:
+            raise RuntimeError(
+                f"Chrome launched but not responding on port {_PORT}.\n\n"
+                f"HEAL: Close all Chrome windows, then:\n"
+                f'  bash__run({json.dumps(cmd)})\n'
+                f"Wait 5s, then retry."
+            )
 
-    # Connect WebSocket (retry up to 3 times)
+    # Step 3: connect WebSocket
     last_err = None
     for attempt in range(3):
         try:
@@ -145,16 +163,18 @@ def _ensure_ready():
                     f"http://127.0.0.1:{_PORT}/json/version", timeout=5,
                 ).read()
             )
-            ws_url = resp["webSocketDebuggerUrl"]
-            _WS = websocket.create_connection(ws_url, timeout=10)
+            _WS = websocket.create_connection(
+                resp["webSocketDebuggerUrl"], timeout=10,
+            )
             break
         except Exception as e:
             last_err = e
             time.sleep(1)
     else:
         raise RuntimeError(
-            f"Cannot connect to Chrome after 3 attempts. "
-            f"Close all Chrome windows and retry. Last error: {last_err}"
+            f"Chrome running but WebSocket connection failed: {last_err}\n\n"
+            "HEAL: Close all Chrome windows and retry. If problem persists, "
+            "check that Chrome version supports --remote-allow-origins."
         )
     _MSG_ID = 0
 
