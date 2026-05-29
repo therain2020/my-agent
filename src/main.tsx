@@ -4438,8 +4438,13 @@ Examples:
   }
   process.stderr.write("[DIAG] interactive mode, before parseAsync\n")
   profileCheckpoint('run_before_parse');
-  await program.parseAsync(process.argv);
-  process.stderr.write("[DIAG] after interactive parseAsync\n")
+  try {
+    await program.parseAsync(process.argv);
+    process.stderr.write("[DIAG] after interactive parseAsync\n")
+  } catch (e) {
+    process.stderr.write(`[DIAG] parseAsync threw: ${(e as Error).stack || e}\n`)
+    throw e
+  }
   profileCheckpoint('run_after_parse');
 
   // Record final checkpoint for total_time calculation
