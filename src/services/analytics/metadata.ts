@@ -123,15 +123,11 @@ export function isAnalyticsToolDetailsLoggingEnabled(
  *
  * Feature-gated so the set is empty when the feature is off: the name
  * reservation (main.tsx, config.ts addMcpServer) is itself feature-gated, so
- * a user-configured 'computer-use' is possible in builds without the feature.
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
 const BUILTIN_MCP_SERVER_NAMES: ReadonlySet<string> = new Set(
-  feature('CHICAGO_MCP')
     ? [
         (
-          require('../../utils/computerUse/common.js') as typeof import('../../utils/computerUse/common.js')
-        ).COMPUTER_USE_MCP_SERVER_NAME,
       ]
     : [],
 )

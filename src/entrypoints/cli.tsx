@@ -70,12 +70,8 @@ async function main(): Promise<void> {
     return;
   }
   // claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
-  if (feature('CHICAGO_MCP') && process.argv[2] === '--computer-use-mcp') {
     profileCheckpoint('cli_computer_use_mcp_path');
     const {
-      runComputerUseMcpServer
-    } = await import('../utils/computerUse/mcpServer.js');
-    await runComputerUseMcpServer();
     return;
   }
 
