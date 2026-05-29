@@ -66,7 +66,8 @@ export function initBundledSkills(): void {
     /* eslint-enable @typescript-eslint/no-require-imports */
     registerClaudeApiSkill()
   }
-  // claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution  if (feature('RUN_SKILL_GENERATOR')) {
+  // claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
+  if (feature('RUN_SKILL_GENERATOR')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { registerRunSkillGeneratorSkill } = require('./runSkillGenerator.js')
     /* eslint-enable @typescript-eslint/no-require-imports */
