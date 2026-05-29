@@ -43,11 +43,12 @@ COMPLEX_KW = frozenset([
 class LLMProvider:
     """Thin wrapper around an LLM SDK callable."""
 
-    def __init__(self, name: str, model: str, cost_per_1k: float = 0.0):
+    def __init__(self, name: str, model: str,
+                 cost_per_1k: float = 0.0, base_url: str | None = None):
         self.name = name
         self.model = model
         self.cost_per_1k = cost_per_1k
-        self._base_url: str | None = None
+        self._base_url = base_url
         self._api_key: str | None = None
 
     async def complete(
@@ -75,18 +76,36 @@ class LLMProvider:
         return f"LLMProvider({self.name}, {self.model})"
 
 
-async def _complete_openai(model, messages, tools, tool_choice, max_tokens, base_url=None, api_key=None):
+def _build_client(key, base_url, default_api_key):
+    """Build an AsyncOpenAI client with proxy support from net_proxy env var."""
+    import httpx
     import openai
-    key = api_key or os.environ.get("OPENAI_API_KEY")
-    kwargs = {}
-    if base_url:
-        kwargs["base_url"] = base_url
-    client = openai.AsyncOpenAI(api_key=key, **kwargs)
+    proxy_url = os.environ.get("net_proxy") or os.environ.get("HTTP_PROXY")
+    http_client = httpx.AsyncClient(proxy=proxy_url) if proxy_url else None
+    return openai.AsyncOpenAI(
+        api_key=key or os.environ.get(default_api_key),
+        base_url=base_url,
+        http_client=http_client,
+    )
+
+
+async def _complete_openai(model, messages, tools, tool_choice, max_tokens, base_url=None, api_key=None):
+    # Route to the correct key + base URL per provider
     if "deepseek" in model:
-        client = openai.AsyncOpenAI(
-            api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
-            base_url=base_url or "https://api.deepseek.com/v1",
-        )
+        client = _build_client(api_key, base_url or "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY")
+    elif "qwen" in model:
+        client = _build_client(api_key,
+                               base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                               "DASHSCOPE_API_KEY")
+    elif "glm" in model:
+        client = _build_client(api_key, base_url or "https://open.bigmodel.cn/api/paas/v4", "ZHIPUAI_API_KEY")
+    elif "moonshot" in model:
+        client = _build_client(api_key, base_url or "https://api.moonshot.cn/v1", "MOONSHOT_API_KEY")
+    elif "doubao" in model or "ep-" in model:
+        client = _build_client(api_key,
+                               base_url or "https://ark.cn-beijing.volces.com/api/v3", "ARK_API_KEY")
+    else:
+        client = _build_client(api_key, base_url, "OPENAI_API_KEY")
     kwargs = {
         "model": model,
         "messages": messages,
@@ -191,37 +210,37 @@ def detect_providers(config: dict | None = None) -> list[LLMProvider]:
     active_name = config.get("provider") if config else None
 
     for name, label, env_var, model, base_url, cost in PROVIDER_REGISTRY:
-        # Check env var first
+        # Check env var first (uses the DEFAULT env var from registry)
         if env_var and os.environ.get(env_var):
-            providers.append(LLMProvider(name, model, cost_per_1k=cost))
-        # Then check config file
+            providers.append(LLMProvider(name, model,
+                                         cost_per_1k=cost, base_url=base_url))
+        # Then check config file (api_key stored from --setup)
         elif config and name in config.get("providers", {}):
             prov = config["providers"][name]
             if prov.get("api_key"):
                 cfg_model = prov.get("model") or model
-                providers.append(LLMProvider(name, cfg_model, cost_per_1k=cost))
+                cfg_base = prov.get("base_url") or base_url
+                providers.append(LLMProvider(name, cfg_model,
+                                             cost_per_1k=cost, base_url=cfg_base))
 
-    # If active provider is set but wasn't found via env/config, add it anyway
-    # (handles case where user specified a custom env var name that doesn't
-    # match the default env var in PROVIDER_REGISTRY)
+    # If active provider has a custom env var (e.g. ALI_TONGYI_KEY instead
+    # of DASHSCOPE_API_KEY), the loop above would've missed it. Check config again.
     if active_name:
         names = {p.name for p in providers}
         if active_name not in names:
-            # Look up the provider info from config or registry
             prov_cfg = (config or {}).get("providers", {}).get(active_name, {})
             if prov_cfg.get("api_key"):
                 for name, label, env_var, model, base_url, cost in PROVIDER_REGISTRY:
                     if name == active_name:
                         cfg_model = prov_cfg.get("model") or model
-                        providers.append(LLMProvider(name, cfg_model, cost_per_1k=cost))
+                        cfg_base = prov_cfg.get("base_url") or base_url
+                        providers.append(LLMProvider(name, cfg_model,
+                                                     cost_per_1k=cost, base_url=cfg_base))
                         break
                 else:
-                    # Provider name not in registry — use config data directly
                     providers.append(LLMProvider(
-                        active_name,
-                        prov_cfg.get("model", "unknown"),
-                        cost_per_1k=prov_cfg.get("cost", 0.0),
-                    ))
+                        active_name, prov_cfg.get("model", "unknown"),
+                        cost_per_1k=prov_cfg.get("cost", 0.0)))
 
     providers.sort(key=lambda p: p.cost_per_1k)
     return providers
