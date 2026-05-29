@@ -211,7 +211,6 @@ import {
   isBetaTracingEnabled,
   type LLMRequestNewContext,
   startLLMRequestSpan,
-} from '../../utils/telemetry/sessionTracing.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -1375,7 +1374,6 @@ async function* queryModel(
   const useBetas = betas.length > 0
 
   // Build minimal context for detailed tracing (when beta tracing is enabled)
-  // Note: The actual new_context message extraction is done in sessionTracing.ts using
   // hash-based tracking per querySource (agent) from the messagesForAPI array
   const extraToolSchemas = [...(options.extraToolSchemas ?? [])]
   if (advisorModel) {

@@ -21,7 +21,6 @@ import {
   getSettingsForSource,
   updateSettingsForSource,
 } from '../settings/settings.js'
-import { buildPluginTelemetryFields } from '../telemetry/pluginTelemetry.js'
 import { clearAllCaches } from './cacheUtils.js'
 import {
   formatDependencyCountSuffix,

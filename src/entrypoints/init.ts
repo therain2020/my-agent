@@ -40,11 +40,8 @@ import {
   ensureScratchpadDir,
   isScratchpadEnabled,
 } from '../utils/permissions/filesystem.js'
-// initializeTelemetry is loaded lazily via import() in setMeterState() to defer
 // ~400KB of OpenTelemetry + protobuf modules until telemetry is actually initialized.
-// gRPC exporters (~700KB via @grpc/grpc-js) are further lazy-loaded within instrumentation.ts.
 import { configureGlobalAgents } from '../utils/proxy.js'
-import { isBetaTracingEnabled } from '../utils/telemetry/betaSessionTracing.js'
 import { getTelemetryAttributes } from '../utils/telemetryAttributes.js'
 import { setShellIfWindows } from '../utils/windowsPaths.js'
 
@@ -243,7 +240,6 @@ export const init = memoize(async (): Promise<void> => {
  * For non-eligible users, initializes telemetry immediately.
  * This should only be called once, after the trust dialog has been accepted.
  */
-export function initializeTelemetryAfterTrust(): void {
   if (isEligibleForRemoteManagedSettings()) {
     // For SDK/headless mode with beta tracing, initialize eagerly first
     // to ensure the tracer is ready before the first query runs.
@@ -303,11 +299,8 @@ async function doInitializeTelemetry(): Promise<void> {
 
 async function setMeterState(): Promise<void> {
   // Lazy-load instrumentation to defer ~400KB of OpenTelemetry + protobuf
-  const { initializeTelemetry } = await import(
-    '../utils/telemetry/instrumentation.js'
   )
   // Initialize customer OTLP telemetry (metrics, logs, traces)
-  const meter = await initializeTelemetry()
   if (meter) {
     // Create factory function for attributed counters
     const createAttributedCounter = (

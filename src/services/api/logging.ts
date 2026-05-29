@@ -22,12 +22,10 @@ import { logError } from 'src/utils/log.js'
 import { getAPIProviderForStatsig } from 'src/utils/model/providers.js'
 import type { PermissionMode } from 'src/utils/permissions/PermissionMode.js'
 import { jsonStringify } from 'src/utils/slowOperations.js'
-import { logOTelEvent } from 'src/utils/telemetry/events.js'
 import {
   endLLMRequestSpan,
   isBetaTracingEnabled,
   type Span,
-} from 'src/utils/telemetry/sessionTracing.js'
 import type { NonNullableUsage } from '../../entrypoints/sdk/sdkUtilityTypes.js'
 import { consumeInvokingRequestId } from '../../utils/agentContext.js'
 import {
@@ -365,7 +363,6 @@ export function logAPIError({
   })
 
   // Log API error event for OTLP
-  void logOTelEvent('api_error', {
     model: model,
     error: errStr,
     status_code: String(status),
@@ -715,7 +712,6 @@ export function logAPISuccessAndDuration({
     betas,
   })
   // Log API request event for OTLP
-  void logOTelEvent('api_request', {
     model,
     input_tokens: String(usage.input_tokens),
     output_tokens: String(usage.output_tokens),

@@ -131,8 +131,6 @@ import { getInitialSettings, getManagedSettingsKeysForLogging, getSettingsForSou
 import { resetSettingsCache } from './utils/settings/settingsCache.js';
 import type { ValidationError } from './utils/settings/validation.js';
 import { DEFAULT_TASKS_MODE_TASK_LIST_ID, TASK_STATUSES } from './utils/tasks.js';
-import { logPluginLoadErrors, logPluginsEnabledForSession } from './utils/telemetry/pluginTelemetry.js';
-import { logSkillsLoaded } from './utils/telemetry/skillLoadedEvent.js';
 import { generateTempFilePath } from './utils/tempfile.js';
 import { validateUuid } from './utils/uuid.js';
 // Plugin startup checks are now handled non-blockingly in REPL.tsx
@@ -275,14 +273,11 @@ if ("external" !== 'ant' && isBeingDebugged()) {
  */
 function logSessionTelemetry(): void {
   const model = parseUserSpecifiedModel(getInitialMainLoopModel() ?? getDefaultMainLoopModel());
-  void logSkillsLoaded(getCwd(), getContextWindowForModel(model, getSdkBetas()));
   void loadAllPluginsCacheOnly().then(({
     enabled,
     errors
   }) => {
     const managedNames = getManagedPluginNames();
-    logPluginsEnabledForSession(enabled, managedNames, getPluginSeedDirs());
-    logPluginLoadErrors(errors, managedNames);
   }).catch(err => logError(err));
 }
 function getCertEnvVarTelemetry(): Record<string, boolean> {
