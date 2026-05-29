@@ -6,7 +6,7 @@ import {
   FORK_BOILERPLATE_TAG,
   FORK_DIRECTIVE_PREFIX,
 } from '../../constants/xml.js'
-import { isCoordinatorMode } from '../../coordinator/coordinatorMode.js'
+const isCoordinatorMode = () => false // coordinator removed
 import type {
   AssistantMessage,
   Message as MessageType,
