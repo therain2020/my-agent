@@ -225,7 +225,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   commit,
   commitPushPr,
   ctx_viz,
-  goodClaude,
   issue,
   initVerifiers,
   ...(forceSnip ? [forceSnip] : []),
@@ -236,7 +235,6 @@ export const INTERNAL_ONLY_COMMANDS = [
   ...(subscribePr ? [subscribePr] : []),
   resetLimits,
   resetLimitsNonInteractive,
-  onboarding,
   share,
   summary,
   teleport,
@@ -256,22 +254,16 @@ const COMMANDS = memoize((): Command[] => [
   advisor,
   agents,
   branch,
-  btw,
-  chrome,
   clear,
-  color,
   compact,
   config,
   copy,
-  desktop,
   context,
   contextNonInteractive,
   cost,
   diff,
   doctor,
-  effort,
   exit,
-  fast,
   files,
   heapDump,
   help,
@@ -282,9 +274,7 @@ const COMMANDS = memoize((): Command[] => [
   installSlackApp,
   mcp,
   memory,
-  mobile,
   model,
-  outputStyle,
   remoteEnv,
   plugin,
   pr_comments,
@@ -297,9 +287,7 @@ const COMMANDS = memoize((): Command[] => [
   stats,
   status,
   statusline,
-  stickers,
   tag,
-  theme,
   feedback,
   review,
   ultrareview,
@@ -312,7 +300,6 @@ const COMMANDS = memoize((): Command[] => [
   rateLimitOptions,
   usage,
   usageReport,
-  vim,
   ...(webCmd ? [webCmd] : []),
   ...(forkCmd ? [forkCmd] : []),
   ...(buddy ? [buddy] : []),
@@ -617,19 +604,14 @@ export const REMOTE_SAFE_COMMANDS: Set<Command> = new Set([
   exit, // Exit the TUI
   clear, // Clear screen
   help, // Show help
-  theme, // Change terminal theme
-  color, // Change agent color
-  vim, // Toggle vim mode
+  // theme, color, vim removed
   cost, // Show session cost (local cost tracking)
   usage, // Show usage info
   copy, // Copy last message
-  btw, // Quick note
   feedback, // Send feedback
   plan, // Plan mode toggle
   keybindings, // Keybinding management
   statusline, // Status line toggle
-  stickers, // Stickers
-  mobile, // Mobile QR code
 ])
 
 /**
