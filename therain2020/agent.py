@@ -18,7 +18,7 @@ import traceback
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from .cli.streaming import StreamEvent
+from .cli.app import Event
 from .constants import MAX_CONVERSATION_MESSAGES
 from .jsonutil import safe_parse_json
 from .memory import Episode
@@ -75,7 +75,7 @@ async def run(task: str, session: Session) -> str:
     return final
 
 
-async def run_stream(task: str, session: Session) -> AsyncIterator[StreamEvent]:
+async def run_stream(task: str, session: Session) -> AsyncIterator[Event]:
     """Streaming variant for TUI/REPL display.
 
     Yields thinking, text, tool_start (with args), tool_result (after execution).
@@ -97,32 +97,32 @@ async def run_stream(task: str, session: Session) -> AsyncIterator[StreamEvent]:
 
             # Emit thinking/reasoning content first
             if response.reasoning:
-                yield StreamEvent.thinking(response.reasoning)
+                yield Event.thinking(response.reasoning)
 
             # Emit text response
             if response.content:
-                yield StreamEvent.text(response.content)
+                yield Event.text(response.content)
 
             # Execute tools, yielding start (with args) then result
             if response.tool_calls:
                 for tc in response.tool_calls:
                     name = tc["function"]["name"]
                     args = _parse_tool_args(tc)
-                    yield StreamEvent.tool_start(name, args)
+                    yield Event.tool_start(name, args)
 
                     # Actually execute the tool now
                     result_text = _get_last_tool_result(session)
                     ok = "error" not in str(result_text).lower() and "[REJECTED]" not in str(result_text)
-                    yield StreamEvent.tool_result(name, ok, str(result_text)[:300])
+                    yield Event.tool_result(name, ok, str(result_text)[:300])
                     tools_used.append(name)
 
             if response.finish_reason == "stop":
                 break
             if response.finish_reason == "error":
-                yield StreamEvent.error(response.content)
+                yield Event.error(response.content)
                 break
     except Exception as e:
-        yield StreamEvent.error(str(e))
+        yield Event.error(str(e))
     finally:
         elapsed = time.time() - t0
         session.memory.log_episode(Episode(
@@ -132,7 +132,7 @@ async def run_stream(task: str, session: Session) -> AsyncIterator[StreamEvent]:
             success=True,
         ))
         _record_session(task, True, steps, tools_used, elapsed)
-        yield StreamEvent.done(steps, elapsed, tools_used)
+        yield Event.done(steps, elapsed, tools_used)
 
 
 async def _step(session: Session, tools_used: list[str]) -> StepResult:
