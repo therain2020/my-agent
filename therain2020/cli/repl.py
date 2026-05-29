@@ -54,22 +54,50 @@ class AgentRepl:
             session = create_session(task=task)
             print()
             async for event in run_stream(task, session):
-                if event.type == StreamEventType.TEXT:
+                if event.type == StreamEventType.THINKING:
+                    self._show_thinking(event.content)
+                elif event.type == StreamEventType.TEXT:
                     print(event.content, end="", flush=True)
                 elif event.type == StreamEventType.TOOL_START:
-                    print(f"\n  … {event.tool_name}", flush=True)
+                    self._show_tool_start(event)
                 elif event.type == StreamEventType.TOOL_RESULT:
-                    mark = "✓" if event.ok else "✗"
-                    print(f"  [{mark}] {event.tool_name}", flush=True)
+                    self._show_tool_result(event)
                 elif event.type == StreamEventType.ERROR:
                     print(f"\nError: {event.error_msg}")
                 elif event.type == StreamEventType.DONE:
                     steps = event.steps
             elapsed = time.time() - t0
-            print(f"\n\nDone — {steps} steps, {elapsed:.1f}s\n")
+            print(f"\nDone — {steps} steps, {elapsed:.1f}s\n")
             session.memory.close()
         except Exception as e:
             print(f"\nError: {e}\n")
+
+    @staticmethod
+    def _show_thinking(content: str):
+        """Show reasoning content dimmed."""
+        for line in content.strip().split("\n"):
+            print(f"  \x1b[2m{line}\x1b[0m", flush=True)
+
+    @staticmethod
+    def _show_tool_start(event):
+        name = event.tool_name
+        if event.arguments:
+            args_str = ", ".join(
+                f"{k}={_truncate(repr(v), 60)}"
+                for k, v in event.arguments.items()
+            )
+            print(f"\n  … {name}({args_str})", flush=True)
+        else:
+            print(f"\n  … {name}", flush=True)
+
+    @staticmethod
+    def _show_tool_result(event):
+        mark = "✓" if event.ok else "✗"
+        if event.content:
+            summary = event.content.replace("\n", " ")[:120]
+            print(f"  [{mark}] → {summary}", flush=True)
+        else:
+            print(f"  [{mark}]", flush=True)
 
     def _handle_slash(self, cmd: str):
         parts = cmd.split()
@@ -94,3 +122,7 @@ class AgentRepl:
                 print(f"  Error: {e}")
         else:
             print(f"Unknown command: {op}")
+
+
+def _truncate(s: str, n: int) -> str:
+    return s if len(s) <= n else s[:n - 3] + "..."

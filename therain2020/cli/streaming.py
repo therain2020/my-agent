@@ -22,6 +22,7 @@ class StreamEventType(Enum):
 class StreamEvent:
     type: StreamEventType
     content: str = ""
+    arguments: dict = field(default_factory=dict)
     tool_name: str = ""
     capability: str = ""
     ok: bool = False
@@ -40,12 +41,14 @@ class StreamEvent:
         return cls(type=StreamEventType.TEXT, content=content)
 
     @classmethod
-    def tool_start(cls, name: str, capability: str) -> StreamEvent:
-        return cls(type=StreamEventType.TOOL_START, tool_name=name, capability=capability)
+    def tool_start(cls, name: str, args: dict | None = None) -> StreamEvent:
+        return cls(type=StreamEventType.TOOL_START, tool_name=name,
+                   arguments=args or {})
 
     @classmethod
     def tool_result(cls, name: str, ok: bool, content: str = "") -> StreamEvent:
-        return cls(type=StreamEventType.TOOL_RESULT, tool_name=name, ok=ok, content=content)
+        return cls(type=StreamEventType.TOOL_RESULT, tool_name=name, ok=ok,
+                   content=content)
 
     @classmethod
     def error(cls, msg: str) -> StreamEvent:
