@@ -70,6 +70,7 @@ async def run(task: str, session: Session) -> str:
         error="" if response and response.finish_reason != "error" else final,
     )
     session.memory.log_episode(episode)
+    _record_session(task, episode.success, steps, tools_used, 0, episode.error)
 
     return final
 
@@ -130,6 +131,7 @@ async def run_stream(task: str, session: Session) -> AsyncIterator[StreamEvent]:
             tools=tools_used,
             success=True,
         ))
+        _record_session(task, True, steps, tools_used, elapsed)
         yield StreamEvent.done(steps, elapsed, tools_used)
 
 
@@ -196,8 +198,31 @@ def _get_last_tool_result(session: Session) -> str:
     return ""
 
 
+def _record_session(task: str, success: bool, steps: int,
+                    tools: list[str], duration: float, error: str = ""):
+    """Persist session summary to Claude Code-style memory."""
+    try:
+        from .memory_manager import MemoryManager
+        mgr = MemoryManager()
+        mgr.record_session(task, success, steps, tools, duration)
+        if error:
+            mgr.record_learning("error", error, task)
+    except Exception:
+        pass
+
+
 def _build_system(session: Session) -> str:
     parts = ["You are an AI assistant with access to tools."]
+
+    # Load memory context (Claude Code-style MEMORY.md + memory files)
+    try:
+        from .memory_manager import MemoryManager
+        mem_ctx = MemoryManager().load_context()
+        if mem_ctx:
+            parts.append("Your memory from past sessions:\n" + mem_ctx)
+    except Exception:
+        pass
+
     safety = session.safety.safety_context()
     if safety:
         parts.append(safety)
