@@ -2,25 +2,19 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   pull_request:
-    branches: [master]
+    branches: [master, main]
 
 jobs:
-  test:
+  typecheck:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: oven-sh/setup-bun@v2
         with:
-          python-version: ${{ matrix.python-version }}
+          bun-version: latest
       - name: Install dependencies
-        run: pip install -e ".[dev]"
-      - name: Run tests
-        run: pytest tests/ -v
-      - name: Lint
-        run: ruff check therain2020/ tests/
+        run: bun install
+      - name: Type check
+        run: bun run --bun tsc --noEmit

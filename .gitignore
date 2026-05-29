@@ -1,21 +1,18 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
+# Dependencies
+node_modules/
+
+# Build output
 dist/
-build/
 
-# Generated tools
-tools/.generated/
+# Bun
+bun.lockb
 
-# Memory
-memory/episodic/*/
-memory/2026-*/
+# Claude Code
+.claude/worktrees/
 
-# Logs
-logs/*.log
-logs/*.jsonl
-logs/errors/
+# Evolution data (user-specific)
+capability-gaps.json
+evolution-journal.jsonl
 
 # IDE
 .vscode/
@@ -23,9 +20,11 @@ logs/errors/
 
 # Env
 .env
-.venv/
-venv/
+.env.local
 
 # OS
 .DS_Store
 Thumbs.db
+
+# Logs
+*.log
