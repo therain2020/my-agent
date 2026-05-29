@@ -126,29 +126,36 @@ def _ensure_ready():
             shell=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        for _ in range(20):
-            time.sleep(0.5)
+        for i in range(30):
+            time.sleep(1)
             if _chrome_listening():
                 break
-        else:
-            raise RuntimeError(
-                f'Chrome did not start. HEAL: bash__run(\'start "" "{chrome}" '
-                f'--remote-debugging-port={_PORT} --remote-allow-origins=* '
-                f'--user-data-dir="{profile}"' + "')"
+            if i == 29:
+                raise RuntimeError(
+                    "Chrome did not start within 30s. "
+                    "Close all Chrome windows and retry."
+                )
+
+    # Connect WebSocket (retry up to 3 times)
+    last_err = None
+    for attempt in range(3):
+        try:
+            resp = json.loads(
+                urllib.request.urlopen(
+                    f"http://127.0.0.1:{_PORT}/json/version", timeout=5,
+                ).read()
             )
-
-    # Connect WebSocket directly to Chrome CDP
-    try:
-        resp = json.loads(
-            urllib.request.urlopen(
-                f"http://127.0.0.1:{_PORT}/json/version", timeout=5,
-            ).read()
+            ws_url = resp["webSocketDebuggerUrl"]
+            _WS = websocket.create_connection(ws_url, timeout=10)
+            break
+        except Exception as e:
+            last_err = e
+            time.sleep(1)
+    else:
+        raise RuntimeError(
+            f"Cannot connect to Chrome after 3 attempts. "
+            f"Close all Chrome windows and retry. Last error: {last_err}"
         )
-        ws_url = resp["webSocketDebuggerUrl"]
-    except Exception as e:
-        raise RuntimeError(f"Cannot connect to Chrome CDP: {e}")
-
-    _WS = websocket.create_connection(ws_url, timeout=10)
     _MSG_ID = 0
 
     # Find or create a page target
