@@ -8,7 +8,8 @@ from therain2020.config import (
 )
 
 
-def test_load_default_config():
+def test_load_default_config(tmp_path, monkeypatch):
+    monkeypatch.setattr("therain2020.config.CONFIG_PATH", tmp_path / "nonexistent.yaml")
     config = load_config()
     assert "provider" in config
     assert "providers" in config

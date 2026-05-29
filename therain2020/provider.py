@@ -40,16 +40,6 @@ COMPLEX_KW = frozenset([
     "investigate", "fix", "secure", "migrate",
 ])
 
-# (name, env_var, model_id, cost_per_1k_tokens)
-_PROVIDER_REGISTRY: list[tuple[str, str, str, float]] = [
-    ("deepseek",     "DEEPSEEK_API_KEY",    "deepseek-chat",      0.14),
-    ("openai-mini",  "OPENAI_API_KEY",      "gpt-4o-mini",        0.15),
-    ("openai-large", "OPENAI_API_KEY",      "gpt-4o",             2.50),
-    ("anthropic-small", "ANTHROPIC_API_KEY", "claude-haiku-4-5-20251001", 0.80),
-    ("anthropic-large", "ANTHROPIC_API_KEY", "claude-sonnet-4-6-20250514", 3.00),
-]
-
-
 class LLMProvider:
     """Thin wrapper around an LLM SDK callable."""
 
@@ -185,9 +175,11 @@ def _tools_to_anthropic(tools: list[dict]) -> list[dict]:
 def detect_providers(config: dict | None = None) -> list[LLMProvider]:
     """Scan env vars + config file for available LLM providers. Sorted by cost.
 
-    Env vars take priority over config file. If a config file specifies an
-    active provider, it's included even without an env var.
+    Uses the canonical PROVIDER_REGISTRY from config.py so the setup wizard
+    and runtime detection agree on provider keys and env var names.
     """
+    from .config import PROVIDER_REGISTRY  # canonical source
+
     if config is None:
         try:
             from .config import load_config
@@ -196,11 +188,11 @@ def detect_providers(config: dict | None = None) -> list[LLMProvider]:
             config = {}
 
     providers = []
-    active_name = config.get("provider")
+    active_name = config.get("provider") if config else None
 
-    for name, env_var, model, cost in _PROVIDER_REGISTRY:
+    for name, label, env_var, model, base_url, cost in PROVIDER_REGISTRY:
         # Check env var first
-        if os.environ.get(env_var):
+        if env_var and os.environ.get(env_var):
             providers.append(LLMProvider(name, model, cost_per_1k=cost))
         # Then check config file
         elif config and name in config.get("providers", {}):
@@ -210,14 +202,26 @@ def detect_providers(config: dict | None = None) -> list[LLMProvider]:
                 providers.append(LLMProvider(name, cfg_model, cost_per_1k=cost))
 
     # If active provider is set but wasn't found via env/config, add it anyway
+    # (handles case where user specified a custom env var name that doesn't
+    # match the default env var in PROVIDER_REGISTRY)
     if active_name:
         names = {p.name for p in providers}
-        base_names = {n.split("-")[0] for n in names}
-        if active_name not in names and active_name not in base_names:
-            for name, env_var, model, cost in _PROVIDER_REGISTRY:
-                if name == active_name:
-                    providers.append(LLMProvider(name, model, cost_per_1k=cost))
-                    break
+        if active_name not in names:
+            # Look up the provider info from config or registry
+            prov_cfg = (config or {}).get("providers", {}).get(active_name, {})
+            if prov_cfg.get("api_key"):
+                for name, label, env_var, model, base_url, cost in PROVIDER_REGISTRY:
+                    if name == active_name:
+                        cfg_model = prov_cfg.get("model") or model
+                        providers.append(LLMProvider(name, cfg_model, cost_per_1k=cost))
+                        break
+                else:
+                    # Provider name not in registry — use config data directly
+                    providers.append(LLMProvider(
+                        active_name,
+                        prov_cfg.get("model", "unknown"),
+                        cost_per_1k=prov_cfg.get("cost", 0.0),
+                    ))
 
     providers.sort(key=lambda p: p.cost_per_1k)
     return providers
