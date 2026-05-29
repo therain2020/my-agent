@@ -161,6 +161,8 @@ import {
   shouldIncludeFirstPartyOnlyBetas,
   shouldUseGlobalCacheScope,
 } from 'src/utils/betas.js'
+import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from 'src/utils/claudeInChrome/common.js'
+import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from 'src/utils/claudeInChrome/prompt.js'
 import { getMaxThinkingTokensForModel } from 'src/utils/context.js'
 import { logForDebugging } from 'src/utils/debug.js'
 import { logForDiagnosticsNoPII } from 'src/utils/diagLogs.js'
@@ -211,6 +213,7 @@ import {
   isBetaTracingEnabled,
   type LLMRequestNewContext,
   startLLMRequestSpan,
+} from '../../utils/telemetry/sessionTracing.js'
 /* eslint-enable @typescript-eslint/no-require-imports */
 import {
   type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
@@ -222,6 +225,7 @@ import {
   markToolsSentToAPIState,
   pinCacheEdits,
 } from '../compact/microCompact.js'
+import { getInitializationStatus } from '../lsp/manager.js'
 import { isToolFromMcpServer } from '../mcp/utils.js'
 import { withStreamingVCR, withVCR } from '../vcr.js'
 import { CLIENT_REQUEST_ID_HEADER, getAnthropicClient } from './client.js'
@@ -1345,6 +1349,7 @@ async function* queryModel(
   // (attachments.ts) instead of here. This per-request sys-prompt append
   // busts the prompt cache when chrome connects late.
   const hasChromeTools = filteredTools.some(t =>
+    isToolFromMcpServer(t.name, CLAUDE_IN_CHROME_MCP_SERVER_NAME),
   )
   const injectChromeHere =
     useToolSearch && hasChromeTools && !isMcpInstructionsDeltaEnabled()
@@ -1359,6 +1364,7 @@ async function* queryModel(
       }),
       ...systemPrompt,
       ...(advisorModel ? [ADVISOR_TOOL_INSTRUCTIONS] : []),
+      ...(injectChromeHere ? [CHROME_TOOL_SEARCH_INSTRUCTIONS] : []),
     ].filter(Boolean),
   )
 
@@ -1374,6 +1380,7 @@ async function* queryModel(
   const useBetas = betas.length > 0
 
   // Build minimal context for detailed tracing (when beta tracing is enabled)
+  // Note: The actual new_context message extraction is done in sessionTracing.ts using
   // hash-based tracking per querySource (agent) from the messagesForAPI array
   const extraToolSchemas = [...(options.extraToolSchemas ?? [])]
   if (advisorModel) {

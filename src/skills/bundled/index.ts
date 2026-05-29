@@ -1,5 +1,5 @@
 import { feature } from 'bun:bundle'
-// claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
+// ClaudeInChrome removed
 import { registerBatchSkill } from './batch.js'
 import { registerDebugSkill } from './debug.js'
 import { registerKeybindingsSkill } from './keybindings.js'
@@ -66,7 +66,7 @@ export function initBundledSkills(): void {
     /* eslint-enable @typescript-eslint/no-require-imports */
     registerClaudeApiSkill()
   }
-  // claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
+  // ClaudeInChrome removed
   if (feature('RUN_SKILL_GENERATOR')) {
     /* eslint-disable @typescript-eslint/no-require-imports */
     const { registerRunSkillGeneratorSkill } = require('./runSkillGenerator.js')

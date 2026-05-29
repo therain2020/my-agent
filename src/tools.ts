@@ -57,7 +57,6 @@ import { TodoWriteTool } from './tools/TodoWriteTool/TodoWriteTool.js'
 import { ExitPlanModeV2Tool } from './tools/ExitPlanModeTool/ExitPlanModeV2Tool.js'
 import { TestingPermissionTool } from './tools/testing/TestingPermissionTool.js'
 import { GrepTool } from './tools/GrepTool/GrepTool.js'
-// TungstenTool: gated by USER_TYPE === 'ant', use lazy require
 /* eslint-disable @typescript-eslint/no-require-imports */
 const TungstenTool =
   process.env.USER_TYPE === 'ant'
@@ -77,13 +76,17 @@ const getSendMessageTool = () =>
     .SendMessageTool as typeof import('./tools/SendMessageTool/SendMessageTool.js').SendMessageTool
 /* eslint-enable @typescript-eslint/no-require-imports */
 import { AskUserQuestionTool } from './tools/AskUserQuestionTool/AskUserQuestionTool.js'
+/* eslint-disable @typescript-eslint/no-require-imports */
+const LSPTool = isEnvTruthy(process.env.ENABLE_LSP_TOOL)
+  ? require('./tools/LSPTool/LSPTool.js').LSPTool
+  : null
+/* eslint-enable @typescript-eslint/no-require-imports */
 import { ListMcpResourcesTool } from './tools/ListMcpResourcesTool/ListMcpResourcesTool.js'
 import { ReadMcpResourceTool } from './tools/ReadMcpResourceTool/ReadMcpResourceTool.js'
 import { ToolSearchTool } from './tools/ToolSearchTool/ToolSearchTool.js'
 import { EnterPlanModeTool } from './tools/EnterPlanModeTool/EnterPlanModeTool.js'
 import { EnterWorktreeTool } from './tools/EnterWorktreeTool/EnterWorktreeTool.js'
 import { ExitWorktreeTool } from './tools/ExitWorktreeTool/ExitWorktreeTool.js'
-// ConfigTool: gated by USER_TYPE === 'ant', use lazy require
 /* eslint-disable @typescript-eslint/no-require-imports */
 const ConfigTool =
   process.env.USER_TYPE === 'ant'
@@ -232,7 +235,7 @@ export function getAllBaseTools(): Tools {
     ...(OverflowTestTool ? [OverflowTestTool] : []),
     ...(CtxInspectTool ? [CtxInspectTool] : []),
     ...(TerminalCaptureTool ? [TerminalCaptureTool] : []),
-    ...(isEnvTruthy(process.env.ENABLE_LSP_TOOL) ? [LSPTool] : []),
+    ...(LSPTool ? [LSPTool] : []),
     ...(isWorktreeModeEnabled() ? [EnterWorktreeTool, ExitWorktreeTool] : []),
     getSendMessageTool(),
     ...(ListPeersTool ? [ListPeersTool] : []),
@@ -362,19 +365,17 @@ export function assembleToolPool(
   // Filter out MCP tools that are in the deny list
   const allowedMcpTools = filterToolsByDenyRules(mcpTools, permissionContext)
 
-  // Load dynamic tools from DynamicToolRegistry (therain2020-agent self-evolution).
-  // Dynamic tools are authored by the agent at runtime and loaded via import().
-  let dynamicTools: Tool[] = []
-  try {
-    const registry = require('./services/DynamicToolRegistry.js').getDynamicToolRegistry()
-    dynamicTools = registry.getAll()
-  } catch {
-    // DynamicToolRegistry may not be initialized yet — ignore
-  }
-
+  // Sort each partition for prompt-cache stability, keeping built-ins as a
+  // contiguous prefix. The server's claude_code_system_cache_policy places a
+  // global cache breakpoint after the last prefix-matched built-in tool; a flat
+  // sort would interleave MCP tools into built-ins and invalidate all downstream
+  // cache keys whenever an MCP tool sorts between existing built-ins. uniqBy
+  // preserves insertion order, so built-ins win on name conflict.
+  // Avoid Array.toSorted (Node 20+) — we support Node 18. builtInTools is
+  // readonly so copy-then-sort; allowedMcpTools is a fresh .filter() result.
   const byName = (a: Tool, b: Tool) => a.name.localeCompare(b.name)
   return uniqBy(
-    [...builtInTools, ...dynamicTools].sort(byName).concat(allowedMcpTools.sort(byName)),
+    [...builtInTools].sort(byName).concat(allowedMcpTools.sort(byName)),
     'name',
   )
 }

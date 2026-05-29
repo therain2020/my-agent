@@ -1,11 +1,12 @@
 import { profileCheckpoint } from '../utils/startupProfiler.js'
 import '../bootstrap/state.js'
 import '../utils/config.js'
-import type { Attributes, MetricOptions } from '../utils/telemetry/opentelemetryStubs.js'
+import type { Attributes, MetricOptions } from '@opentelemetry/api'
 import memoize from 'lodash-es/memoize.js'
 import { getIsNonInteractiveSession } from 'src/bootstrap/state.js'
 import type { AttributedCounter } from '../bootstrap/state.js'
 import { getSessionCounter, setMeter } from '../bootstrap/state.js'
+// LSP removed
 import { populateOAuthAccountInfoIfNeeded } from '../services/oauth/client.js'
 import {
   initializePolicyLimitsLoadingPromise,
@@ -40,8 +41,11 @@ import {
   ensureScratchpadDir,
   isScratchpadEnabled,
 } from '../utils/permissions/filesystem.js'
+// initializeTelemetry is loaded lazily via import() in setMeterState() to defer
 // ~400KB of OpenTelemetry + protobuf modules until telemetry is actually initialized.
+// gRPC exporters (~700KB via @grpc/grpc-js) are further lazy-loaded within instrumentation.ts.
 import { configureGlobalAgents } from '../utils/proxy.js'
+// telemetry removed
 import { getTelemetryAttributes } from '../utils/telemetryAttributes.js'
 import { setShellIfWindows } from '../utils/windowsPaths.js'
 
@@ -181,8 +185,7 @@ export const init = memoize(async (): Promise<void> => {
     // Set up git-bash if relevant
     setShellIfWindows()
 
-    // Register LSP manager cleanup (initialization happens in main.tsx after --plugin-dir is processed)
-    registerCleanup(shutdownLspServerManager)
+    // LSP removed
 
     // gh-32730: teams created by subagents (or main agent without
     // explicit TeamDelete) were left on disk forever. Register cleanup
@@ -233,3 +236,104 @@ export const init = memoize(async (): Promise<void> => {
   }
 })
 
+/**
+ * Initialize telemetry after trust has been granted.
+ * For remote-settings-eligible users, waits for settings to load (non-blocking),
+ * then re-applies env vars (to include remote settings) before initializing telemetry.
+ * For non-eligible users, initializes telemetry immediately.
+ * This should only be called once, after the trust dialog has been accepted.
+ */
+export function initializeTelemetryAfterTrust(): void {
+  if (isEligibleForRemoteManagedSettings()) {
+    // For SDK/headless mode with beta tracing, initialize eagerly first
+    // to ensure the tracer is ready before the first query runs.
+    // The async path below will still run but doInitializeTelemetry() guards against double init.
+    if (false) { // isBetaTracingEnabled removed — telemetry deleted
+      void doInitializeTelemetry().catch(error => {
+        logForDebugging(
+          `[3P telemetry] Eager telemetry init failed (beta tracing): ${errorMessage(error)}`,
+          { level: 'error' },
+        )
+      })
+    }
+    logForDebugging(
+      '[3P telemetry] Waiting for remote managed settings before telemetry init',
+    )
+    void waitForRemoteManagedSettingsToLoad()
+      .then(async () => {
+        logForDebugging(
+          '[3P telemetry] Remote managed settings loaded, initializing telemetry',
+        )
+        // Re-apply env vars to pick up remote settings before initializing telemetry.
+        applyConfigEnvironmentVariables()
+        await doInitializeTelemetry()
+      })
+      .catch(error => {
+        logForDebugging(
+          `[3P telemetry] Telemetry init failed (remote settings path): ${errorMessage(error)}`,
+          { level: 'error' },
+        )
+      })
+  } else {
+    void doInitializeTelemetry().catch(error => {
+      logForDebugging(
+        `[3P telemetry] Telemetry init failed: ${errorMessage(error)}`,
+        { level: 'error' },
+      )
+    })
+  }
+}
+
+async function doInitializeTelemetry(): Promise<void> {
+  if (telemetryInitialized) {
+    // Already initialized, nothing to do
+    return
+  }
+
+  // Set flag before init to prevent double initialization
+  telemetryInitialized = true
+  try {
+    await setMeterState()
+  } catch (error) {
+    // Reset flag on failure so subsequent calls can retry
+    telemetryInitialized = false
+    throw error
+  }
+}
+
+async function setMeterState(): Promise<void> {
+  // Lazy-load instrumentation to defer ~400KB of OpenTelemetry + protobuf
+  const { initializeTelemetry } = await import(
+    '../utils/telemetry/instrumentation.js'
+  )
+  // Initialize customer OTLP telemetry (metrics, logs, traces)
+  const meter = await initializeTelemetry()
+  if (meter) {
+    // Create factory function for attributed counters
+    const createAttributedCounter = (
+      name: string,
+      options: MetricOptions,
+    ): AttributedCounter => {
+      const counter = meter?.createCounter(name, options)
+
+      return {
+        add(value: number, additionalAttributes: Attributes = {}) {
+          // Always fetch fresh telemetry attributes to ensure they're up to date
+          const currentAttributes = getTelemetryAttributes()
+          const mergedAttributes = {
+            ...currentAttributes,
+            ...additionalAttributes,
+          }
+          counter?.add(value, mergedAttributes)
+        },
+      }
+    }
+
+    setMeter(meter, createAttributedCounter)
+
+    // Increment session counter here because the startup telemetry path
+    // runs before this async initialization completes, so the counter
+    // would be null there.
+    getSessionCounter()?.add(1)
+  }
+}

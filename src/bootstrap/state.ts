@@ -1,5 +1,9 @@
 import type { BetaMessageStreamParams } from '@anthropic-ai/sdk/resources/beta/messages/messages.mjs'
-import type { Attributes, Meter, MetricOptions, logs, LoggerProvider, MeterProvider, BasicTracerProvider } from '../utils/telemetry/opentelemetryStubs.js'
+import type { Attributes, Meter, MetricOptions } from '@opentelemetry/api'
+import type { logs } from '@opentelemetry/api-logs'
+import type { LoggerProvider } from '@opentelemetry/sdk-logs'
+import type { MeterProvider } from '@opentelemetry/sdk-metrics'
+import type { BasicTracerProvider } from '@opentelemetry/sdk-trace-base'
 import { realpathSync } from 'fs'
 import sumBy from 'lodash-es/sumBy.js'
 import { cwd } from 'process'
@@ -1240,7 +1244,13 @@ export function getInlinePlugins(): Array<string> {
   return STATE.inlinePlugins
 }
 
-// setChromeFlagOverride / getChromeFlagOverride removed — claudeInChrome removed
+export function setChromeFlagOverride(value: boolean | undefined): void {
+  STATE.chromeFlagOverride = value
+}
+
+export function getChromeFlagOverride(): boolean | undefined {
+  return STATE.chromeFlagOverride
+}
 
 export function setUseCoworkPlugins(value: boolean): void {
   STATE.useCoworkPlugins = value

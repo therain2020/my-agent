@@ -69,9 +69,26 @@ async function main(): Promise<void> {
     console.log(prompt.join('\n'));
     return;
   }
-  // claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
+  if (process.argv[2] === '--claude-in-chrome-mcp') {
+    profileCheckpoint('cli_claude_in_chrome_mcp_path');
+    const {
+      runClaudeInChromeMcpServer
+    } = await import('../utils/claudeInChrome/mcpServer.js');
+    await runClaudeInChromeMcpServer();
+    return;
+  } else if (process.argv[2] === '--chrome-native-host') {
+    profileCheckpoint('cli_chrome_native_host_path');
+    const {
+      runChromeNativeHost
+    } = await import('../utils/claudeInChrome/chromeNativeHost.js');
+    await runChromeNativeHost();
+    return;
+  } else if (feature('CHICAGO_MCP') && process.argv[2] === '--computer-use-mcp') {
     profileCheckpoint('cli_computer_use_mcp_path');
     const {
+      runComputerUseMcpServer
+    } = await import('../utils/computerUse/mcpServer.js');
+    await runComputerUseMcpServer();
     return;
   }
 

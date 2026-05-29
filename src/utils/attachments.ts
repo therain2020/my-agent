@@ -172,7 +172,8 @@ import {
   isMcpInstructionsDeltaEnabled,
   type ClientSideInstruction,
 } from './mcpInstructionsDelta.js'
-// claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
+import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
+import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
 import type { MCPServerConnection } from '../services/mcp/types.js'
 import type {
   HookEvent,
@@ -182,6 +183,10 @@ import {
   checkForAsyncHookResponses,
   removeDeliveredAsyncHooks,
 } from './hooks/AsyncHookRegistry.js'
+import {
+  checkForLSPDiagnostics,
+  clearAllLSPDiagnostics,
+} from '../services/lsp/LSPDiagnosticRegistry.js'
 import { logForDebugging } from './debug.js'
 import {
   extractTextContent,
@@ -244,6 +249,7 @@ import {
 import { isInProcessTeammate } from './teammateContext.js'
 import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
 import { unassignTeammateTasks } from './tasks.js'
+import { getCompanionIntroAttachment } from '../buddy/prompt.js'
 
 export const TODO_REMINDER_CONFIG = {
   TURNS_SINCE_WRITE: 10,
@@ -1067,6 +1073,7 @@ export async function getQueuedCommandAttachments(
         type: 'queued_command' as const,
         prompt,
         source_uuid: _.uuid,
+        imagePasteIds: getImagePasteIds(_.pastedContents),
         commandMode: _.mode,
         origin: _.origin,
         isMeta: _.isMeta,
@@ -1116,7 +1123,7 @@ async function buildImageContentBlocks(
       }
       const resized = await maybeResizeAndDownsampleImageBlock(imageBlock)
       return resized.block
-    })
+    }),
   )
   return results
 }
@@ -1207,7 +1214,7 @@ async function getPlanModeAttachments(
 
   // Check for re-entry: flag is set AND plan file exists
   if (hasExitedPlanModeInSession() && existingPlan !== null) {
-    attachments.push({ type: 'plan_mode_reentry', planFilePath: existingPlan })
+    attachments.push({ type: 'plan_mode_reentry', planFilePath })
     setHasExitedPlanMode(false) // Clear flag - one-time guidance
   }
 
@@ -1440,7 +1447,7 @@ function getUltrathinkEffortAttachment(input: string | null): Attachment[] {
   if (!isUltrathinkEnabled() || !input || !hasUltrathinkKeyword(input)) {
     return []
   }
-  logEvent('tengu_ultrathink', { level: 'high' })
+  logEvent('tengu_ultrathink', {})
   return [{ type: 'ultrathink_effort', level: 'high' }]
 }
 
@@ -1566,8 +1573,10 @@ export function getMcpInstructionsDeltaAttachment(
     modelSupportsToolReference(model) &&
     isToolSearchToolAvailable(tools)
   ) {
-    
-    
+    clientSide.push({
+      serverName: CLAUDE_IN_CHROME_MCP_SERVER_NAME,
+      block: CHROME_TOOL_SEARCH_INSTRUCTIONS,
+    })
   }
 
   const delta = getMcpInstructionsDelta(mcpClients, messages ?? [], clientSide)
@@ -1719,7 +1728,7 @@ export function memoryFilesToAttachments(
         path: memoryFile.path,
         content: memoryFile,
         displayPath: relative(getCwd(), memoryFile.path),
-      
+      })
       toolUseContext.loadedNestedMemoryPaths?.add(memoryFile.path)
 
       // Mark as loaded in readFileState — this provides cross-function and
@@ -1738,7 +1747,7 @@ export function memoryFilesToAttachments(
         offset: undefined,
         limit: undefined,
         isPartialView: memoryFile.contentDiffersFromDisk,
-      
+      })
 
 
       // Fire InstructionsLoaded hook for audit/observability (fire-and-forget)
@@ -1909,7 +1918,7 @@ async function processAtMentionedFiles(
             try {
               const entries = await readdir(absoluteFilename, {
                 withFileTypes: true,
-              
+              })
               const MAX_DIR_ENTRIES = 1000
               const truncated = entries.length > MAX_DIR_ENTRIES
               const names = entries.slice(0, MAX_DIR_ENTRIES).map(e => e.name)
@@ -1919,7 +1928,7 @@ async function processAtMentionedFiles(
                 )
               }
               const stdout = names.join('\n')
-              logEvent('tengu_at_mention_extracting_directory_success', {
+              logEvent('tengu_at_mention_extracting_directory_success', {})
 
               return {
                 type: 'directory' as const,
@@ -1947,9 +1956,9 @@ async function processAtMentionedFiles(
           },
         )
       } catch {
-        logEvent('tengu_at_mention_extracting_filename_error', {
+        logEvent('tengu_at_mention_extracting_filename_error', {})
       }
-    ,
+    }),
   )
   return results.filter(Boolean) as Attachment[]
 }
@@ -1966,17 +1975,17 @@ function processAgentMentions(
     const agentDef = agents.find(def => def.agentType === agentType)
 
     if (!agentDef) {
-      logEvent('tengu_at_mention_agent_not_found', {
+      logEvent('tengu_at_mention_agent_not_found', {})
       return null
     }
 
-    logEvent('tengu_at_mention_agent_success', {
+    logEvent('tengu_at_mention_agent_success', {})
 
     return {
       type: 'agent_mention' as const,
       agentType: agentDef.agentType,
     }
-  
+  })
 
   return results.filter(
     (result): result is NonNullable<typeof result> => result !== null,
@@ -1999,14 +2008,14 @@ async function processMcpResourceAttachments(
         const uri = uriParts.join(':') // Rejoin in case URI contains colons
 
         if (!serverName || !uri) {
-          logEvent('tengu_at_mention_mcp_resource_error', {
+          logEvent('tengu_at_mention_mcp_resource_error', {})
           return null
         }
 
         // Find the MCP client
         const client = mcpClients.find(c => c.name === serverName)
         if (!client || client.type !== 'connected') {
-          logEvent('tengu_at_mention_mcp_resource_error', {
+          logEvent('tengu_at_mention_mcp_resource_error', {})
           return null
         }
 
@@ -2015,16 +2024,16 @@ async function processMcpResourceAttachments(
           toolUseContext.options.mcpResources?.[serverName] || []
         const resourceInfo = serverResources.find(r => r.uri === uri)
         if (!resourceInfo) {
-          logEvent('tengu_at_mention_mcp_resource_error', {
+          logEvent('tengu_at_mention_mcp_resource_error', {})
           return null
         }
 
         try {
           const result = await client.client.readResource({
             uri,
-          
+          })
 
-          logEvent('tengu_at_mention_mcp_resource_success', {
+          logEvent('tengu_at_mention_mcp_resource_success', {})
 
           return {
             type: 'mcp_resource' as const,
@@ -2035,15 +2044,15 @@ async function processMcpResourceAttachments(
             content: result,
           }
         } catch (error) {
-          logEvent('tengu_at_mention_mcp_resource_error', {
+          logEvent('tengu_at_mention_mcp_resource_error', {})
           logError(error)
           return null
         }
       } catch {
-        logEvent('tengu_at_mention_mcp_resource_error', {
+        logEvent('tengu_at_mention_mcp_resource_error', {})
         return null
       }
-    ,
+    }),
   )
 
   return results.filter(
@@ -2146,7 +2155,7 @@ export async function getChangedFiles(
         }
         return null
       }
-    ,
+    }),
   )
   return results.filter(result => result != null) as Attachment[]
 }
@@ -2200,7 +2209,7 @@ async function getRelevantMemoryAttachments(
     return agentDef?.memory
       ? [getAgentMemoryDir(agentType, agentDef.memory)]
       : []
-  
+  })
   const dirs = memoryDirs.length > 0 ? memoryDirs : [getAutoMemPath()]
 
   const allResults = await Promise.all(
@@ -2280,7 +2289,7 @@ export async function readMemoriesForSurfacing(
   }>
 > {
   const results = await Promise.all(
-    selected.map(async ({ path: filePath, mtimeMs  => {
+    selected.map(async ({ path: filePath, mtimeMs }) => {
       try {
         const result = await readFileInRange(
           filePath,
@@ -2294,7 +2303,7 @@ export async function readMemoriesForSurfacing(
           result.totalLines > MAX_MEMORY_LINES || result.truncatedByBytes
         const content = truncated
           ? result.content +
-            `\n\n> This memory file was truncated (${result.truncatedByBytes ? `${MAX_MEMORY_BYTES} byte limit` : `first ${MAX_MEMORY_LINES} lines`. Use the ${FILE_READ_TOOL_NAME} tool to view the complete file at: ${filePath}`
+            `\n\n> This memory file was truncated (${result.truncatedByBytes ? `${MAX_MEMORY_BYTES} byte limit` : `first ${MAX_MEMORY_LINES} lines`}). Use the ${FILE_READ_TOOL_NAME} tool to view the complete file at: ${filePath}`
           : result.content
         return {
           path: filePath,
@@ -2306,7 +2315,7 @@ export async function readMemoriesForSurfacing(
       } catch {
         return null
       }
-    ,
+    }),
   )
   return results.filter(r => r !== null)
 }
@@ -2319,7 +2328,7 @@ export function memoryHeader(path: string, mtimeMs: number): string {
   const staleness = memoryFreshnessText(mtimeMs)
   return staleness
     ? `${staleness}\n\nMemory: ${path}:`
-    : `Memory (saved ${memoryAge(mtimeMs): ${path}:`
+    : `Memory (saved ${memoryAge(mtimeMs)}): ${path}:`
 }
 
 /**
@@ -2392,7 +2401,7 @@ export function startRelevantMemoryPrefetch(
       logError(e)
     }
     return []
-  
+  })
 
   const handle: MemoryPrefetch = {
     promise,
@@ -2405,12 +2414,12 @@ export function startRelevantMemoryPrefetch(
           handle.settledAt !== null && handle.consumedOnIteration === 0,
         consumed_on_iteration: handle.consumedOnIteration,
         latency_ms: (handle.settledAt ?? Date.now()) - firedAt,
-      
+      })
     },
   }
   void promise.finally(() => {
     handle.settledAt = Date.now()
-  
+  })
   return handle
 }
 
@@ -2524,10 +2533,10 @@ export function filterDuplicateMemoryAttachments(
           timestamp: m.mtimeMs,
           offset: undefined,
           limit: m.limit,
-        
+        })
       }
       return filtered.length > 0 ? { ...attachment, memories: filtered } : null
-    
+    })
     .filter((a): a is Attachment => a !== null)
 }
 
@@ -2548,7 +2557,7 @@ async function getDynamicSkillAttachments(
     const perDirResults = await Promise.all(
       Array.from(toolUseContext.dynamicSkillDirTriggers).map(async skillDir => {
         try {
-          const entries = await readdir(skillDir, { withFileTypes: true 
+          const entries = await readdir(skillDir, { withFileTypes: true })
           const candidates = entries
             .filter(e => e.isDirectory() || e.isSymbolicLink())
             .map(e => e.name)
@@ -2561,7 +2570,7 @@ async function getDynamicSkillAttachments(
               } catch {
                 return null // SKILL.md doesn't exist, skip this entry
               }
-            ,
+            }),
           )
           return {
             skillDir,
@@ -2571,7 +2580,7 @@ async function getDynamicSkillAttachments(
           // Ignore errors reading skill directories (e.g., directory doesn't exist)
           return { skillDir, skillNames: [] }
         }
-      ,
+      }),
     )
 
     for (const { skillDir, skillNames } of perDirResults) {
@@ -2581,7 +2590,7 @@ async function getDynamicSkillAttachments(
           skillDir,
           skillNames,
           displayPath: relative(getCwd(), skillDir),
-        
+        })
       }
     }
 
@@ -2774,7 +2783,7 @@ export function extractAtMentionedFiles(content: string): string[] {
     if (!filename.startsWith('"')) {
       regularMatches.push(filename)
     }
-  
+  })
 
   // Combine and deduplicate
   return uniq([...quotedMatches, ...regularMatches])
@@ -2895,11 +2904,11 @@ async function getLSPDiagnosticAttachments(
     )
 
     // Convert each diagnostic set to an attachment
-    const attachments: Attachment[] = diagnosticSets.map(({ files  => ({
+    const attachments: Attachment[] = diagnosticSets.map(({ files }) => ({
       type: 'diagnostics' as const,
       files,
       isNew: true,
-    )
+    }))
 
     // Clear delivered diagnostics from registry to prevent memory leak
     // Follows same pattern as removeDeliveredAsyncHooks
@@ -2953,7 +2962,7 @@ export async function* getAttachmentMessages(
     attachment_types: attachments.map(
       _ => _.type,
     ) as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
-  
+  })
 
   for (const attachment of attachments) {
     yield createAttachmentMessage(attachment)
@@ -3086,7 +3095,7 @@ export async function generateFileAttachment(
       ) {
         // File hasn't been modified, return already_read_file attachment
         // This tells the system the file is already in context and doesn't need to be sent to API
-        logEvent(successEventName, {
+        logEvent(successEventName, {})
         return {
           type: 'already_read_file',
           filename,
@@ -3144,7 +3153,7 @@ export async function generateFileAttachment(
           limit: MAX_LINES_TO_READ,
         }
         const result = await FileReadTool.call(truncatedInput, toolUseContext)
-        logEvent(successEventName, {
+        logEvent(successEventName, {})
 
         return {
           type: 'file' as const,
@@ -3154,7 +3163,7 @@ export async function generateFileAttachment(
           displayPath: relative(getCwd(), filename),
         }
       } catch {
-        logEvent(errorEventName, {
+        logEvent(errorEventName, {})
         return null
       }
     }
@@ -3167,7 +3176,7 @@ export async function generateFileAttachment(
 
     try {
       const result = await FileReadTool.call(fileInput, toolUseContext)
-      logEvent(successEventName, {
+      logEvent(successEventName, {})
       return {
         type: 'file',
         filename,
@@ -3184,7 +3193,7 @@ export async function generateFileAttachment(
       throw error
     }
   } catch {
-    logEvent(errorEventName, {
+    logEvent(errorEventName, {})
     return null
   }
 }
@@ -3449,7 +3458,7 @@ async function getUnifiedTaskAttachments(
     description: taskAttachment.description,
     deltaSummary: taskAttachment.deltaSummary,
     outputFilePath: getTaskOutputPath(taskAttachment.taskId),
-  )
+  }))
 }
 
 async function getAsyncHookResponseAttachments(): Promise<Attachment[]> {
@@ -3474,9 +3483,9 @@ async function getAsyncHookResponseAttachments(): Promise<Attachment[]> {
       stdout,
       stderr,
       exitCode,
-     => {
+    }) => {
       logForDebugging(
-        `Hooks: Creating attachment for ${processId} (${hookName: ${jsonStringify(response)}`,
+        `Hooks: Creating attachment for ${processId} (${hookName}): ${jsonStringify(response)}`,
       )
       return {
         type: 'async_hook_response' as const,
@@ -3628,7 +3637,7 @@ async function getTeammateMailboxAttachments(
         timestamp: m.timestamp,
         color: m.color,
         summary: m.summary,
-      
+      })
     }
   }
 
@@ -3649,7 +3658,7 @@ async function getTeammateMailboxAttachments(
       const agent = idleAgentByIndex.get(i)
       if (agent === undefined) return true
       return latestIdleByAgent.get(agent) === i
-    
+    })
     logForDebugging(
       `[SwarmMailbox] Collapsed ${beforeCount - allMessages.length} duplicate idle notification(s)`,
     )
@@ -3710,7 +3719,7 @@ async function getTeammateMailboxAttachments(
           removeTeammateFromTeamFile(teamName, {
             agentId: teammateId,
             name: teammateToRemove,
-          
+          })
           logForDebugging(
             `[SwarmMailbox] Removed ${teammateToRemove} from team file`,
           )
@@ -3736,7 +3745,7 @@ async function getTeammateMailboxAttachments(
                 teammates: remainingTeammates,
               },
             }
-          
+          })
         }
       }
     }
@@ -3753,7 +3762,7 @@ async function getTeammateMailboxAttachments(
           pendingIds.has(m.id) ? { ...m, status: 'processed' as const } : m,
         ),
       },
-    )
+    }))
   }
 
   return attachment
