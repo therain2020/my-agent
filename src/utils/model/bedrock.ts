@@ -5,3 +5,5 @@
 
 export function findFirstMatch(): undefined { return undefined }
 export function getBedrockInferenceProfiles(): string[] { return [] }
+export function applyBedrockRegionPrefix(model: string, _prefix?: string): string { return model }
+export function getBedrockRegionPrefix(): string { return '' }

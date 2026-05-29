@@ -18,6 +18,7 @@
         "chokidar": "^5.0.0",
         "cli-boxes": "^4.0.0",
         "code-excerpt": "^4.0.0",
+        "color-diff-napi": "0.0.1",
         "diff": "^9.0.0",
         "emoji-regex": "^10.6.0",
         "env-paths": "^4.0.0",
@@ -135,6 +136,8 @@
     "code-excerpt": ["code-excerpt@4.0.0", "", { "dependencies": { "convert-to-spaces": "^2.0.1" } }, "sha512-xxodCmBen3iy2i0WtAK8FlFNrRzjUqjRsMfho58xT/wvZU1YTM3fCnRjcy1gJPMepaRlgm/0e6w8SpWHpn3/cA=="],
 
     "color-convert": ["color-convert@2.0.1", "", { "dependencies": { "color-name": "~1.1.4" } }, "sha512-RRECPsj7iu/xb5oKYcsFHSppFNnsj/52OVTRKb4zP5onXwVF3zVmmToNcOfGC+CRDpfK/U584fMg38ZHCaElKQ=="],
+
+    "color-diff-napi": ["color-diff-napi@0.0.1", "", {}, "sha512-tEwCEDFRCl75LfxzuYVTYVyWFVnt6zqH01HRhLuFrotPSkVk+Nt5Zxr0yXVjsta4eh7GeKCSVNNDi/VoNT0bOQ=="],
 
     "color-name": ["color-name@1.1.4", "", {}, "sha512-dOy+3AuW3a2wNbZHIuMZpTcgjGuLU/uBL/ubcZF9OXbDo8ff4O8yVp5Bf0efS8uEoYo5q4Fx7dY9OgQGXgAsQA=="],
 
