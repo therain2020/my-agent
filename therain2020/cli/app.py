@@ -8,6 +8,12 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 from dataclasses import dataclass, field
 from enum import Enum
 

@@ -11,6 +11,13 @@ from __future__ import annotations
 import asyncio
 import sys
 
+# Force UTF-8 on Windows
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 
 async def _run_task(task: str):
     import time
