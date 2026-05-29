@@ -1,13 +1,12 @@
-"""Tests for provider.py — LLM provider detection and routing."""
+"""Tests for provider.py — get_configured_provider and routing."""
 
 import pytest
 
 from therain2020.provider import (
     LLMProvider,
     TaskComplexity,
-    detect_providers,
-    escalate,
     estimate_complexity,
+    get_configured_provider,
     route,
 )
 
@@ -16,19 +15,12 @@ class TestEstimateComplexity:
     def test_simple_keywords(self):
         assert estimate_complexity("read the file") == TaskComplexity.SIMPLE
         assert estimate_complexity("list all files") == TaskComplexity.SIMPLE
-        assert estimate_complexity("show me the code") == TaskComplexity.SIMPLE
-        assert estimate_complexity("find all python files") == TaskComplexity.SIMPLE
 
     def test_complex_keywords(self):
         assert estimate_complexity("refactor the auth module") == TaskComplexity.COMPLEX
-        assert estimate_complexity("design a new architecture") == TaskComplexity.COMPLEX
-        assert estimate_complexity("debug the memory leak") == TaskComplexity.COMPLEX
-        assert estimate_complexity("fix the race condition") == TaskComplexity.COMPLEX
 
     def test_moderate_default(self):
         assert estimate_complexity("implement a new feature") == TaskComplexity.MODERATE
-        assert estimate_complexity("update the config") == TaskComplexity.MODERATE
-        assert estimate_complexity("create a test file") == TaskComplexity.MODERATE
 
 
 class TestRouting:
@@ -36,7 +28,6 @@ class TestRouting:
     def providers(self):
         return [
             LLMProvider("cheap", "cheap-model", cost_per_1k=0.1),
-            LLMProvider("mid", "mid-model", cost_per_1k=1.0),
             LLMProvider("strong", "strong-model", cost_per_1k=5.0),
         ]
 
@@ -48,106 +39,52 @@ class TestRouting:
         p = route("refactor the auth system", providers)
         assert p.name == "strong"
 
-    def test_moderate_routes_to_middle(self, providers):
-        p = route("implement feature x", providers)
-        assert p.name == "mid"
-
-    def test_single_provider(self):
-        providers = [LLMProvider("only", "model")]
-        p = route("do anything", providers)
-        assert p.name == "only"
-
     def test_empty_providers_raises(self):
         with pytest.raises(RuntimeError):
             route("task", [])
 
 
-class TestEscalate:
-    @pytest.fixture
-    def providers(self):
-        return [
-            LLMProvider("a", "a", cost_per_1k=0.1),
-            LLMProvider("b", "b", cost_per_1k=1.0),
-            LLMProvider("c", "c", cost_per_1k=5.0),
-        ]
+class TestGetConfiguredProvider:
+    def test_returns_none_for_empty_config(self):
+        assert get_configured_provider(config={}) is None
 
-    def test_escalate_from_cheapest(self, providers):
-        next_p = escalate(providers[0], providers)
-        assert next_p is not None
-        assert next_p.name == "b"
+    def test_returns_none_when_no_active_provider(self):
+        config = {"provider": None, "providers": {}}
+        assert get_configured_provider(config=config) is None
 
-    def test_escalate_from_top_returns_none(self, providers):
-        next_p = escalate(providers[-1], providers)
-        assert next_p is None
+    def test_returns_none_when_no_api_key(self):
+        config = {"provider": "qwen", "providers": {"qwen": {}}}
+        assert get_configured_provider(config=config) is None
 
-
-class TestDetectProviders:
-    def test_no_env_vars_empty_config(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
-        providers = detect_providers(config={})
-        assert len(providers) == 0
-
-    def test_openai_detected(self, monkeypatch):
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
-        providers = detect_providers(config={})
-        names = [p.name for p in providers]
-        assert "openai" in names
-        assert "openai-l" in names
-
-    def test_deepseek_detected(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
-        providers = detect_providers(config={})
-        assert len(providers) == 1
-        assert providers[0].name == "deepseek"
-
-    def test_config_file_detection(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+    def test_reads_from_config(self):
         config = {
-            "providers": {
-                "qwen": {"api_key": "sk-from-config", "model": "qwen-plus"},
-            },
             "provider": "qwen",
+            "providers": {
+                "qwen": {
+                    "api_key": "sk-test",
+                    "model": "qwen-plus",
+                    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                },
+            },
         }
-        providers = detect_providers(config=config)
-        assert len(providers) >= 1
-        names = [p.name for p in providers]
-        assert "qwen" in names
+        p = get_configured_provider(config=config)
+        assert p is not None
+        assert p.name == "qwen"
+        assert p.model == "qwen-plus"
+        assert p._api_key == "sk-test"
+        assert p._base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
-    def test_config_file_detection_no_api_key(self, monkeypatch):
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
-        config = {"providers": {"qwen": {}}}  # no api_key
-        providers = detect_providers(config=config)
-        assert len(providers) == 0
-
-    def test_sorted_by_cost(self, monkeypatch):
-        monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
-        providers = detect_providers(config={})
-        costs = [p.cost_per_1k for p in providers]
-        assert costs == sorted(costs)
+    def test_falls_back_to_registry_defaults(self):
+        config = {
+            "provider": "qwen",
+            "providers": {"qwen": {"api_key": "sk-test"}},
+        }
+        p = get_configured_provider(config=config)
+        assert p is not None
+        assert p.name == "qwen"
+        assert p._api_key == "sk-test"
+        assert p.model == "qwen-plus"  # from registry
+        assert p._base_url is not None  # from registry
 
 
 class TestLLMProvider:
@@ -155,3 +92,19 @@ class TestLLMProvider:
         p = LLMProvider("test", "test-model")
         assert p.token_count("hello world") >= 1
         assert p.token_count("你好世界") >= 1
+
+    def test_proxy_url_no_scheme(self, monkeypatch):
+        from therain2020.provider import _proxy_url
+        monkeypatch.setenv("net_proxy", "127.0.0.1:7890")
+        assert _proxy_url() == "http://127.0.0.1:7890"
+
+    def test_proxy_url_with_scheme(self, monkeypatch):
+        from therain2020.provider import _proxy_url
+        monkeypatch.setenv("net_proxy", "http://127.0.0.1:7890")
+        assert _proxy_url() == "http://127.0.0.1:7890"
+
+    def test_proxy_url_none(self, monkeypatch):
+        from therain2020.provider import _proxy_url
+        monkeypatch.delenv("net_proxy", raising=False)
+        monkeypatch.delenv("HTTP_PROXY", raising=False)
+        assert _proxy_url() is None

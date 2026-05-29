@@ -1,10 +1,7 @@
-"""LLM provider abstraction with cost-aware routing.
+"""LLM provider — thin wrapper with proxy support.
 
-Thin wrapper over Anthropic / OpenAI SDKs. No pool, no capability
-matrix — detect available providers from env vars, route by task
-complexity, escalate on failure.
-
-Migrated from: providers/router.py (routing), cli/autodetect.py (detection).
+Config file (~/.therain2020-agent/config.yaml) is the single source
+of truth. No env var probing — user configured everything in --setup.
 """
 
 from __future__ import annotations
@@ -40,34 +37,26 @@ COMPLEX_KW = frozenset([
     "investigate", "fix", "secure", "migrate",
 ])
 
-class LLMProvider:
-    """Thin wrapper around an LLM SDK callable."""
 
-    def __init__(self, name: str, model: str,
-                 cost_per_1k: float = 0.0, base_url: str | None = None):
+class LLMProvider:
+    """Thin wrapper. All config comes from the Session factory."""
+
+    def __init__(self, name: str, model: str, cost_per_1k: float = 0.0,
+                 base_url: str | None = None, api_key: str | None = None):
         self.name = name
         self.model = model
         self.cost_per_1k = cost_per_1k
         self._base_url = base_url
-        self._api_key: str | None = None
+        self._api_key = api_key
 
-    async def complete(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        tool_choice: str = "auto",
-        max_tokens: int = 4096,
-    ) -> LLMResponse:
-        """Call the model. Routes to the correct SDK internally."""
+    async def complete(self, messages, tools=None, tool_choice="auto",
+                       max_tokens=4096) -> LLMResponse:
         if "anthropic" in self.name:
             return await _complete_anthropic(
-                self.model, messages, tools, tool_choice, max_tokens,
-                api_key=self._api_key,
-            )
+                self.model, messages, tools, max_tokens, self._api_key)
         return await _complete_openai(
-            self.model, messages, tools, tool_choice, max_tokens,
-            base_url=self._base_url, api_key=self._api_key,
-        )
+            self.model, messages, tools, max_tokens,
+            self._base_url, self._api_key)
 
     def token_count(self, text: str) -> int:
         return max(1, len(text.encode("utf-8")) // 4)
@@ -76,45 +65,34 @@ class LLMProvider:
         return f"LLMProvider({self.name}, {self.model})"
 
 
-def _build_client(key, base_url, default_api_key):
-    """Build an AsyncOpenAI client with proxy support from net_proxy env var."""
+# -- HTTP client builders ------------------------------------------------
+
+def _proxy_url() -> str | None:
+    raw = os.environ.get("net_proxy") or os.environ.get("HTTP_PROXY")
+    if not raw:
+        return None
+    if "://" not in raw:
+        raw = "http://" + raw
+    return raw
+
+
+def _build_openai_client(api_key: str, base_url: str | None) -> openai.AsyncOpenAI:  # type: ignore[name-defined]  # noqa: F821
     import httpx
     import openai
-    proxy_url = os.environ.get("net_proxy") or os.environ.get("HTTP_PROXY")
-    http_client = httpx.AsyncClient(proxy=proxy_url) if proxy_url else None
-    return openai.AsyncOpenAI(
-        api_key=key or os.environ.get(default_api_key),
-        base_url=base_url,
-        http_client=http_client,
-    )
+    proxy = _proxy_url()
+    http_client = httpx.AsyncClient(proxy=proxy) if proxy else None
+    return openai.AsyncOpenAI(api_key=api_key, base_url=base_url, http_client=http_client)
 
 
-async def _complete_openai(model, messages, tools, tool_choice, max_tokens, base_url=None, api_key=None):
-    # Route to the correct key + base URL per provider
-    if "deepseek" in model:
-        client = _build_client(api_key, base_url or "https://api.deepseek.com/v1", "DEEPSEEK_API_KEY")
-    elif "qwen" in model:
-        client = _build_client(api_key,
-                               base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                               "DASHSCOPE_API_KEY")
-    elif "glm" in model:
-        client = _build_client(api_key, base_url or "https://open.bigmodel.cn/api/paas/v4", "ZHIPUAI_API_KEY")
-    elif "moonshot" in model:
-        client = _build_client(api_key, base_url or "https://api.moonshot.cn/v1", "MOONSHOT_API_KEY")
-    elif "doubao" in model or "ep-" in model:
-        client = _build_client(api_key,
-                               base_url or "https://ark.cn-beijing.volces.com/api/v3", "ARK_API_KEY")
-    else:
-        client = _build_client(api_key, base_url, "OPENAI_API_KEY")
-    kwargs = {
-        "model": model,
-        "messages": messages,
-        "max_tokens": max_tokens,
-    }
+# -- completion helpers --------------------------------------------------
+
+async def _complete_openai(model, messages, tools, max_tokens, base_url, api_key):
+    client = _build_openai_client(api_key, base_url)
+    kw = {"model": model, "messages": messages, "max_tokens": max_tokens}
     if tools:
-        kwargs["tools"] = tools
-        kwargs["tool_choice"] = tool_choice
-    resp = await client.chat.completions.create(**kwargs)  # type: ignore[arg-type]
+        kw["tools"] = tools
+        kw["tool_choice"] = "auto"
+    resp = await client.chat.completions.create(**kw)  # type: ignore[arg-type]
     choice = resp.choices[0]
     tool_calls = None
     if choice.message.tool_calls:
@@ -132,40 +110,39 @@ async def _complete_openai(model, messages, tools, tool_choice, max_tokens, base
     )
 
 
-async def _complete_anthropic(model, messages, tools, tool_choice, max_tokens, api_key=None):
+async def _complete_anthropic(model, messages, tools, max_tokens, api_key):
     import json
 
     import anthropic
-    client = anthropic.AsyncAnthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
+    client = anthropic.AsyncAnthropic(api_key=api_key)
     system = ""
-    user_messages = []
+    user_msgs = []
     for m in messages:
         if m["role"] == "system":
             system += m["content"] + "\n"
         else:
-            user_messages.append(m)
-    kwargs = {
-        "model": model,
-        "messages": user_messages,
-        "max_tokens": max_tokens,
-    }
+            user_msgs.append(m)
+    kw = {"model": model, "messages": user_msgs, "max_tokens": max_tokens}
     if system.strip():
-        kwargs["system"] = system.strip()
+        kw["system"] = system.strip()
     if tools:
-        kwargs["tools"] = _tools_to_anthropic(tools)
-    resp = await client.messages.create(**kwargs)
-    content_blocks = resp.content
+        kw["tools"] = [
+            {"name": t["function"]["name"],
+             "description": t["function"].get("description", ""),
+             "input_schema": t["function"].get("parameters", {"type": "object", "properties": {}})}
+            for t in tools
+        ]
+    resp = await client.messages.create(**kw)
     text = ""
     tool_calls = None
-    for block in content_blocks:
+    for block in resp.content:
         if block.type == "text":
             text += block.text
         elif block.type == "tool_use":
             if tool_calls is None:
                 tool_calls = []
             tool_calls.append({
-                "id": block.id,
-                "type": "function",
+                "id": block.id, "type": "function",
                 "function": {"name": block.name, "arguments": json.dumps(block.input)},
             })
     return LLMResponse(
@@ -177,28 +154,10 @@ async def _complete_anthropic(model, messages, tools, tool_choice, max_tokens, a
     )
 
 
-def _tools_to_anthropic(tools: list[dict]) -> list[dict]:
-    out = []
-    for t in tools:
-        f = t["function"]
-        out.append({
-            "name": f["name"],
-            "description": f.get("description", ""),
-            "input_schema": f.get("parameters", {"type": "object", "properties": {}}),
-        })
-    return out
+# -- provider config (from config file only) ----------------------------
 
-
-# -- provider detection & routing ---------------------------------------
-
-def detect_providers(config: dict | None = None) -> list[LLMProvider]:
-    """Scan env vars + config file for available LLM providers. Sorted by cost.
-
-    Uses the canonical PROVIDER_REGISTRY from config.py so the setup wizard
-    and runtime detection agree on provider keys and env var names.
-    """
-    from .config import PROVIDER_REGISTRY  # canonical source
-
+def get_configured_provider(config: dict | None = None) -> LLMProvider | None:
+    """Read the active provider from config file. No env var probing."""
     if config is None:
         try:
             from .config import load_config
@@ -206,48 +165,43 @@ def detect_providers(config: dict | None = None) -> list[LLMProvider]:
         except Exception:
             config = {}
 
-    providers = []
-    active_name = config.get("provider") if config else None
+    active = config.get("provider") if config else None
+    if not active:
+        return None
 
-    for name, label, env_var, model, base_url, cost in PROVIDER_REGISTRY:
-        # Check env var first (uses the DEFAULT env var from registry)
-        if env_var and os.environ.get(env_var):
-            providers.append(LLMProvider(name, model,
-                                         cost_per_1k=cost, base_url=base_url))
-        # Then check config file (api_key stored from --setup)
-        elif config and name in config.get("providers", {}):
-            prov = config["providers"][name]
-            if prov.get("api_key"):
-                cfg_model = prov.get("model") or model
-                cfg_base = prov.get("base_url") or base_url
-                providers.append(LLMProvider(name, cfg_model,
-                                             cost_per_1k=cost, base_url=cfg_base))
+    # Look up from config first, then from registry for defaults
+    prov_cfg = (config or {}).get("providers", {}).get(active, {})
+    api_key = prov_cfg.get("api_key")
+    if not api_key:
+        return None
 
-    # If active provider has a custom env var (e.g. ALI_TONGYI_KEY instead
-    # of DASHSCOPE_API_KEY), the loop above would've missed it. Check config again.
-    if active_name:
-        names = {p.name for p in providers}
-        if active_name not in names:
-            prov_cfg = (config or {}).get("providers", {}).get(active_name, {})
-            if prov_cfg.get("api_key"):
-                for name, label, env_var, model, base_url, cost in PROVIDER_REGISTRY:
-                    if name == active_name:
-                        cfg_model = prov_cfg.get("model") or model
-                        cfg_base = prov_cfg.get("base_url") or base_url
-                        providers.append(LLMProvider(name, cfg_model,
-                                                     cost_per_1k=cost, base_url=cfg_base))
-                        break
-                else:
-                    providers.append(LLMProvider(
-                        active_name, prov_cfg.get("model", "unknown"),
-                        cost_per_1k=prov_cfg.get("cost", 0.0)))
+    model = prov_cfg.get("model") or "gpt-3.5-turbo"
+    base_url = prov_cfg.get("base_url")
+    cost = prov_cfg.get("cost", 0.0)
 
-    providers.sort(key=lambda p: p.cost_per_1k)
-    return providers
+    # Fall back to registry for base_url / model / cost defaults
+    if not base_url or not model or not cost:
+        try:
+            from .config import PROVIDER_REGISTRY
+            for name, label, env_var, def_model, def_base, def_cost in PROVIDER_REGISTRY:
+                if name == active:
+                    if not model or model == "gpt-3.5-turbo":
+                        model = def_model
+                    if not base_url:
+                        base_url = def_base
+                    if not cost:
+                        cost = def_cost
+                    break
+        except Exception:
+            pass
 
+    return LLMProvider(active, model, cost_per_1k=cost,
+                       base_url=base_url, api_key=api_key)
+
+
+# -- routing ------------------------------------------------------------
 
 def estimate_complexity(task: str) -> TaskComplexity:
-    """Keyword-based task complexity assessment (migrated from CostRouter)."""
     tl = task.lower()
     if any(kw in tl for kw in COMPLEX_KW):
         return TaskComplexity.COMPLEX
@@ -257,27 +211,8 @@ def estimate_complexity(task: str) -> TaskComplexity:
 
 
 def route(task: str, providers: list[LLMProvider]) -> LLMProvider:
-    """Pick the right provider for the task.
-
-    SIMPLE  → cheapest available
-    COMPLEX → strongest available (last in cost-sorted list)
-    MODERATE → middle (or cheapest if only one)
-    """
     if not providers:
         raise RuntimeError("No LLM providers available")
-    complexity = estimate_complexity(task)
-    if complexity == TaskComplexity.SIMPLE or len(providers) == 1:
-        return providers[0]
-    if complexity == TaskComplexity.COMPLEX:
+    if estimate_complexity(task) == TaskComplexity.COMPLEX and len(providers) > 1:
         return providers[-1]
-    # MODERATE: pick the middle
-    return providers[len(providers) // 2]
-
-
-def escalate(current: LLMProvider, providers: list[LLMProvider]) -> LLMProvider | None:
-    """Move to the next-stronger provider on failure. Returns None if at top."""
-    sorted_providers = sorted(providers, key=lambda p: p.cost_per_1k)
-    for i, p in enumerate(sorted_providers):
-        if p.name == current.name and i + 1 < len(sorted_providers):
-            return sorted_providers[i + 1]
-    return None
+    return providers[0]
