@@ -262,6 +262,7 @@ function isBeingDebugged() {
 }
 
 // Exit if we detect node debugging or inspection
+process.stderr.write(`[DIAG] isBeingDebugged=${isBeingDebugged()}\n`)
 if ("external" !== 'ant' && isBeingDebugged()) {
   // Use process.exit directly here since we're in the top-level code before imports
   // and gracefulShutdown is not yet available
@@ -4610,6 +4611,7 @@ function extractTeammateOptions(options: unknown): TeammateOptions {
 }
 
 // Self-executing entry point for therain2020-agent
+process.stderr.write("[DIAG] calling main()\n")
 main().catch(err => {
   console.error('Fatal error:', err)
   process.exit(1)
