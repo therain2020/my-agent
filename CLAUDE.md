@@ -1,153 +1,178 @@
-# CLAUDE.md — therain2020-agent
+# CLAUDE.md
 
-## Design Reference
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-设计文档和方案讨论位于飞书知识库: https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651
+## Overview
 
-| # | 文件 | 主题 |
-|---|------|------|
-| 01 | agent-structure.md | Agent 结构设计 |
-| 02 | agent-loop.md | Agent 事件循环 |
-| 03 | two-modes.md | TODO / Goal 双模式 |
-| 04 | long-term-memory.md | 长期记忆系统 |
-| 05 | dont-do-set.md | 非集设计 |
-| 06 | supplemental-requirements.md | 补充需求 |
-| 07 | interrupt-signal.md | 中断信号机制 |
-| 08 | tool-registration.md | 工具注册与发现 |
-| 09 | dont-do-storage.md | 非集存储方案 |
-| 10 | memory-consolidation.md | 记忆整合 |
-| 11 | system-architecture.md | 系统架构总览（OS 内核类比映射）|
-| 12 | error-recovery.md | 错误恢复机制 |
-| 13 | tech-stack.md | 技术栈选型 |
-| 14 | context-window.md | 上下文窗口管理 |
-| 15 | prompt-assembly.md | 提示组装器设计 |
-| 16 | session-management.md | 会话管理 |
-| 17 | observability.md | 可观测性 |
-| 18 | security-threat-model.md | 安全威胁模型 |
-| 19 | evaluation.md | 评估基准 |
-| 20 | multi-agent.md | 多代理协作 |
-| 21 | phase-one-plan.md | Phase 1 实施计划（Add-First Agent v0.1）|
-| 22 | release-workflow.md | 发布流程 |
-| 23 | semantic-memory-consolidation-v2.md | 语义记忆整合 V2 |
-| 24 | goal-mode.md | Goal 模式设计 |
-| 25 | dont-do-engine-v2.md | 非集引擎 V2（iptables 风格）|
-| 26 | provider-failover-security.md | Provider 故障转移和安全 |
-| 27 | phase-two-plan.md | Phase 2 实施计划（记忆与安全深化）|
-| 28 | publish-marketplace.md | 发布与市场 |
-| 29 | cost-routing.md | 成本路由 |
-| 30 | phase-three-plan.md | Phase 3 实施计划（质量与协作）|
+This is the leaked source code of **Claude Code** — Anthropic's official CLI tool for interacting with Claude in the terminal. Leaked 2026-03-31 via a `.map` file in the npm registry.
 
-## Project Docs
+- **Language**: TypeScript (strict)
+- **Runtime**: [Bun](https://bun.sh)
+- **Terminal UI**: React + [Ink](https://github.com/vadimdemedes/ink)
+- **CLI Parsing**: Commander.js (`@commander-js/extra-typings`)
+- **Schema Validation**: Zod v4 (`zod/v4`)
+- **API**: Anthropic SDK (`@anthropic-ai/sdk`)
+- **Code Search**: ripgrep (via GrepTool)
+- **Feature Flags**: GrowthBook + Bun bundler dead-code elimination
+- **Telemetry**: OpenTelemetry + gRPC
 
-项目文档同样位于飞书知识库：https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651
-
-| 文件 | 主题 |
-|------|------|
-| comprehensive-evaluation-plan.md | 多角度综合评估与路线图（10 方向 × 7 维度评估）|
-| improvement-plan-1-2-3-merged.md | 完整优化方案合并版（架构差距 + BH 启发 + 最终选型）|
-| improvement-plan-1.md | 原始架构差距分析（一～八：非集/角色/纠正/验证/TODO/记忆/文献）|
-| improvement-plan-2.md | BH 启发优化方案探索（九～十四：自愈/静默检测/压缩/技能/调度/浏览器）|
-| improvement-plan-3.md | 最终实施方案（九-C×十-A 协同 + 4 Phase 代码级设计 + 路线图）|
-| cli-ux-upgrade-plan.md | CLI UX 升级方案（流式输出 + 思考模式 + Rich 渲染）|
-
-## 行为规则
-
-- 当用户讨论设计方案、架构决策或新需求时，主动查阅设计文档作为上下文参考
-- 设计文档位于 `D:\GitHub\agent-design\temp\`（本地）和飞书知识库（远程共享）
-- 当用户提出"像之前讨论的那样"或"按照设计来"时，先到设计文档目录确认原意再执行
-- 设计文档是设计阶段的产物，当前实现可能已有偏差。以代码为准，设计文档仅供理解原始意图
-
-## Project Architecture
-
-核心模块按 OS 内核类比组织:
-
-| 模块 | 类比 |
-|------|------|
-| `agent/core.py` | Process scheduler — TODO/Goal event loop, dont-do enrichment, capability recording |
-| `agent/objects.py` | VFS inode + xattrs — Ontology object (Data+Logic+Actions+Relations) |
-| `agent/role.py` | seccomp profile — Structured role with constraint/action generation |
-| `agent/dont_do.py` | iptables netfilter — Hook-based rule engine, path-aware context |
-| `agent/correction.py` | auditd + rule gen — User feedback to dont-do rule closed loop |
-| `agent/events.py` | journald — 11 event types for Event Sourcing |
-| `agent/event_store.py` | ext4 journal — Append-only event log, snapshot, in-process pub/sub |
-| `agent/memory.py` | ext4 journal (SQLite WAL) — Episodic + semantic, FTS5 |
-| `agent/consolidation.py` | kswapd + LFS cleaner — LLM-driven episodic→semantic |
-| `agent/pattern_miner.py` | KSM (same-page merging) — Cross-episode pattern discovery |
-| `agent/memory_migrations.py` | Alembic-style — Versioned schema migration |
-| `agent/prompt.py` | ELF loader — Prompt assembly + ontology context injection |
-| `agent/context.py` | MMU + page replacement — LRU context window management |
-| `agent/context_compressor.py` | zswap + KSM — Semantic-aware compression, never touches procedural instructions |
-| `agent/output_format.py` | syslog format enforcer — Citation rules, progressive disclosure |
-| `agent/providers/pool.py` | RAID 1 + multipath — Provider failover with circuit breaker |
-| `agent/providers/router.py` | ondemand cpufreq + NUMA — Cost + capability-aware routing |
-| `agent/providers/capability.py` | CPU affinity — Jagged Frontier model profiling |
-| `agent/tools/registry.py` | udev — Tool registration, lookup by object type |
-| `agent/tools/executor.py` | execve — Tool execution, credential injection, verification hooks |
-| `agent/tools/evolution.py` | kpatch — Runtime tool patching with git version control |
-| `agent/tools/editor.py` | ptrace — Agent tool editing interface (add verify, add helper) |
-| `agent/tools/supervisor.py` | systemd — MCP process lifecycle management |
-| `agent/tools/adapters/` | filesystem drivers — 10 ecosystem adapters (incl. browser harness) |
-| `agent/tools/browser/` | kthread — CDP daemon, screenshot-first interaction, coordinate-click default |
-| `agent/skills/` | shared libraries + ld.so.cache — Social learning network, PII gating, auto-retirement |
-| `agent/security/` | LSM + keyring — Credential guard, prompt injection defense |
-
-## 常规命令
-
-```bash
-# 测试 (302 tests)
-pytest tests/ -v
-
-# Lint
-ruff check agent/ tests/
-
-# 构建
-python -m build
-```
-
-## Network
-
-此环境联网需代理。代理地址从系统环境变量 `net_proxy` 读取。
-
-```bash
-# 使用方式。$env:net_proxy 值类似 http://127.0.0.1:7890
-curl --proxy $net_proxy ...
-pip install --proxy $net_proxy ...
-```
-
-## Release Flow
+## Project Structure
 
 ```
-1. python scripts/bump_version.py patch|minor|major
-2. Update CHANGELOG.md
-3. git checkout -b feat/release-vX.Y.Z
-4. git add ... && git commit && git push && gh pr create
-5. 等 CI 全绿 → merge PR
-6. CI 自动: 读 pyproject.toml 版本号 → git tag vX.Y.Z → build
-   → GitHub Release（含 release notes）→ PyPI 发布
+src/
+├── main.tsx                 # Entrypoint — Commander.js + React/Ink renderer + startup prefetch
+├── commands.ts              # Slash command registry
+├── tools.ts                 # Tool registry
+├── Tool.ts                  # Tool type definitions (~29K lines)
+├── QueryEngine.ts           # Core LLM API caller (~46K lines) — streaming, tool-call loops, retry
+├── context.ts               # System/user context collection (CLAUDE.md, git status, env)
+├── cost-tracker.ts          # Token cost tracking
+├── Task.ts                  # Task type definitions
+├── tasks.ts                 # Task management
+│
+├── commands/                # Slash command implementations (~80 subdirectories)
+├── tools/                   # Agent tool implementations (~40 subdirectories)
+├── components/              # Ink UI components (~140 files)
+├── hooks/                   # React hooks (toolPermission, notifs)
+├── services/                # External service integrations
+│   ├── api/                 # Anthropic API client, file API, bootstrap
+│   ├── mcp/                 # MCP server connection and management
+│   ├── oauth/               # OAuth 2.0 authentication
+│   ├── lsp/                 # Language Server Protocol manager
+│   ├── analytics/           # GrowthBook feature flags and analytics
+│   ├── plugins/             # Plugin loader
+│   ├── compact/             # Conversation context compression
+│   ├── policyLimits/        # Organization policy limits
+│   └── remoteManagedSettings/ # Remote managed settings
+│
+├── bridge/                  # IDE integration (VS Code, JetBrains)
+├── coordinator/             # Multi-agent coordinator
+├── plugins/                 # Plugin system
+├── skills/                  # Skill system (bundled + user skills)
+├── state/                   # AppStateStore, AppState, selectors
+├── entrypoints/             # Initialization logic (init.ts, cli.tsx, mcp.ts)
+├── types/                   # Shared TypeScript types
+├── utils/                   # Utility functions
+├── constants/               # Constants (products, prompts, OAauth, betas, etc.)
+├── schemas/                 # Config schemas (Zod)
+├── migrations/              # Config migrations
+├── keybindings/             # Keybinding configuration
+├── vim/                     # Vim mode
+├── voice/                   # Voice input
+├── remote/                  # Remote sessions
+├── server/                  # Server mode
+├── memdir/                  # Persistent memory directory
+├── buddy/                   # Companion sprite (easter egg)
+├── ink/                     # Ink renderer wrapper
+├── outputStyles/            # Output styling
+├── query/                   # Query pipeline
+├── cli/                     # CLI transports (SSE, WebSocket, CCR), I/O
+└── upstreamproxy/           # Proxy configuration
 ```
 
-Tag 由 CI 在 merge commit 上自动创建，保证 tag 和 master 代码永远一致。不需要手动打 tag。
+## Core Architecture
 
-### Release Verification
+### Tool System
 
-每次发布后验证三步：
+Every tool implements the `Tool` interface (`Tool.ts:362`). Each tool lives in its own directory under `src/tools/<Name>/` and exports an object with:
 
-```bash
-# 1. 确认 GitHub Actions
-gh run list -w release.yml --limit 1
+- `name` — unique identifier
+- `call(input, context, canUseTool)` — execution logic
+- `description(input, options)` — dynamic description for the model
+- `inputSchema` — Zod schema for input validation
+- `isEnabled()` — feature-gate check
+- `isReadOnly(input)` — permission classification
+- `isConcurrencySafe(input)` — whether parallel calls are safe
+- `isDestructive?(input)` — marks irreversible operations
+- `validateInput?(input, context)` — context-aware validation
+- `interruptBehavior?()` — `'cancel'` or `'block'` for new messages during execution
+- `mcpInfo?` — present on all MCP-proxied tools
 
-# 2. 确认 PyPI 版本
-python -c "import urllib.request,json; d=json.loads(urllib.request.urlopen('https://pypi.org/pypi/therain2020-agent/json').read()); print(d['info']['version'])"
+Tools are registered in `tools.ts` with conditional imports gated by `feature()` (Bun dead-code elimination) or `process.env.USER_TYPE === 'ant'`.
 
-# 3. 干净环境安装测试
-python -m venv /tmp/test-pypi
-/tmp/test-pypi/Scripts/pip install --proxy $env:net_proxy \
-  therain2020-agent==<version>
-/tmp/test-pypi/Scripts/python -c "import agent; print(agent.__version__)"
-rm -rf /tmp/test-pypi
+### Command System
+
+Slash commands are UI-level features invoked with `/` prefix. Each command is a module with `Command` type (`types/command.ts`). Registered in `commands.ts`, executed via `commands.handleCommand()`.
+
+### Query Engine (`QueryEngine.ts`)
+
+The central LLM interaction loop. Handles:
+- Streaming responses from Anthropic API
+- Tool-call detection and execution loop
+- Thinking mode (extended reasoning)
+- Retry logic for transient API errors
+- Token counting and cost tracking
+- System/user context assembly
+
+### State Management
+
+- `state/AppState.tsx` — defines the full application state type
+- `state/AppStateStore.ts` — singleton store
+- `state/selectors.ts` — memoized selectors
+- `state/onChangeAppState.ts` — subscribe to state changes
+- State flows through `ToolUseContext.getAppState()` / `setAppState()`
+
+### Services Layer
+
+- **MCP** — connects to Model Context Protocol servers via stdio/SSE/HTTP/WS. Each MCP tool is wrapped as a native `Tool` via `mcp__server__tool` naming convention
+- **OAuth** — OAuth 2.0 flow for API authentication
+- **LSP** — Language Server Protocol integration for code intelligence
+- **Analytics** — GrowthBook SDK for feature flags, event logging
+- **Compact** — context compression when conversation exceeds limits
+
+### Bridge System
+
+Bidirectional communication between IDE extensions (VS Code, JetBrains) and the CLI. Key files: `bridgeMain.ts`, `replBridge.ts`, `bridgeMessaging.ts`, `sessionRunner.ts`.
+
+### Permission System
+
+`hooks/toolPermission/` — checks permissions per tool invocation. Configurable modes: `default`, `plan`, `bypassPermissions`, `auto`, `acceptEdits`. Each tool's `validateInput()` and `isReadOnly()` feed into this system.
+
+### Feature Flags
+
+Bun's `bun:bundle` feature flags enable dead-code elimination:
+
+```typescript
+import { feature } from 'bun:bundle'
+
+const monitorTool = feature('MONITOR_TOOL')
+  ? require('./tools/MonitorTool/MonitorTool.js').MonitorTool
+  : null
 ```
 
-## 行为规则
+Notable flags: `PROACTIVE`, `KAIROS`, `BRIDGE_MODE`, `DAEMON`, `VOICE_MODE`, `AGENT_TRIGGERS`, `MONITOR_TOOL`, `COORDINATOR_MODE`.
 
-- 网络操作走 `$env:net_proxy` 代理（由系统环境变量配置），不要再问
-- 发布后自动执行三步验证，不要再问
+### Agent Swarms / Coordinator
+
+`AgentTool` spawns sub-agents for parallel work. `coordinator/coordinatorMode.ts` handles multi-agent orchestration. `TeamCreateTool` / `TeamDeleteTool` manage team-level parallelism.
+
+### Skill System
+
+Reusable workflows in `skills/` executed through `SkillTool`. Skills are loaded from `bundledSkills.ts` and `loadSkillsDir.ts`. Users add custom skills at `~/.claude/skills/<name>/SKILL.md`.
+
+## Key Design Patterns
+
+### Startup Prefetch
+
+`main.tsx` fires side-effects before heavy imports: MDM settings read, keychain prefetch, GrowthBook init all run in parallel during module evaluation.
+
+### Lazy Loading
+
+Heavy modules (~400KB OpenTelemetry, ~700KB gRPC) are loaded via dynamic `import()` only when needed. `require()` is used for conditional imports gated by feature flags.
+
+### Tool Result Persistence
+
+When tool output exceeds `maxResultSizeChars`, results are saved to disk and a preview with file path is sent to the model instead. Prevents context window bloat.
+
+### Circular Dependency Handling
+
+Lazy `require()` patterns break import cycles (e.g., `teammate.ts → AppState.tsx → main.tsx`).
+
+## Code Conventions
+
+- `src/` uses `import { ... } from './relative/path.js'` with explicit `.js` extensions even for `.tsx` files
+- Zod v4 schemas use `lazySchema()` wrapper for recursive/circular schema definitions
+- `// biome-ignore-all assist/source/organizeImports` marks files with intentional import ordering
+- `// eslint-disable-next-line custom-rules/no-top-level-side-effects` for startup side-effects
+- `ANT-ONLY` comments mark internal Anthropic-only features gated by `USER_TYPE === 'ant'`
+- Use `process.env.NODE_ENV === 'test'` guards to skip git/filesystem operations during tests

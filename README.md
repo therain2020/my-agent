@@ -1,245 +1,257 @@
-# therain2020-agent
+# Claude Code — Leaked Source (2026-03-31)
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-302%20passed-brightgreen.svg)](tests/)
-[![PyPI](https://img.shields.io/pypi/v/therain2020-agent.svg)](https://pypi.org/project/therain2020-agent/)
-
-[中文文档](README.zh-CN.md)
-
-A closed-loop agent framework that actually checks its work — observes before acting, blocks dangerous operations at runtime, verifies results with evidence, and learns from every mistake.
+> **On March 31, 2026, the full source code of Anthropic's Claude Code CLI was leaked** via a `.map` file exposed in their npm registry.
 
 ---
 
-## What's different
+## How It Leaked
 
-Most agent frameworks send a prompt, execute whatever the LLM says, and call it done. This one runs a reconciliation loop:
+[Chaofan Shou (@Fried_rice)](https://x.com/Fried_rice) discovered the leak and posted it publicly:
 
-- **Observes object state before acting.** Knows what a file looks like before writing to it. Diffs before and after.
-- **Blocks at runtime, not in prompts.** Dont-do rules fire at three hook points. Path-aware context enrichment means rules actually match real paths — not just pattern names.
-- **Verifies with evidence.** Re-observes after acting. Compares acceptance criteria against what actually changed. Returns confidence, not guesswork.
-- **Remembers as events.** Every observation, tool call, correction, and verification is an immutable event. Full replay. Full audit trail.
-- **Routes by capability, not just cost.** Tracks per-model success rates per task type. Knows when to upgrade from haiku to sonnet for database work.
-- **Discovers its own patterns.** Mines past episodes for recurring errors, corrections, and failures. Proposes rules. You approve.
-- **Heals its own tools.** When a tool is missing or silent-failing, the agent reads existing code, writes the missing function, and retries. Self-healing with git version control.
-- **Builds a skill network.** Successful episodes are distilled into reusable skills. Skills get rated, iterated, retired when stale, and merged when duplicate. PII-gated before sharing.
-- **Compresses context safely.** LLM-driven semantic compression that never touches procedural instructions — prevents the "where did the rules go" class of bugs.
-- **Controls a browser directly.** Raw CDP, no Playwright wrapper. Screenshot-first interaction, coordinate-click default. Agent extends its own browser helpers at runtime.
+> **"Claude code source code has been leaked via a map file in their npm registry!"**
+>
+> — [@Fried_rice, March 31, 2026](https://x.com/Fried_rice/status/2038894956459290963)
+
+The source map file in the published npm package contained a reference to the full, unobfuscated TypeScript source, which was downloadable as a zip archive from Anthropic's R2 storage bucket.
 
 ---
 
-## Install
+## Overview
 
-```bash
-pip install therain2020-agent
-```
+Claude Code is Anthropic's official CLI tool that lets you interact with Claude directly from the terminal to perform software engineering tasks — editing files, running commands, searching codebases, managing git workflows, and more.
 
-## Quick start
+This repository contains the leaked `src/` directory.
 
-```bash
-# Add a provider
-therain2020-agent provider add qwen --adapter custom \
-  --api-key-env ALI_TONGYI_KEY \
-  --base-url https://dashscope.aliyuncs.com/compatible-mode/v1 \
-  --model qwen-plus
-
-# Discover tools
-therain2020-agent add discover
-
-# Run a task
-therain2020-agent run "add rate limiting to the login endpoint"
-```
+- **Leaked on**: 2026-03-31
+- **Language**: TypeScript
+- **Runtime**: Bun
+- **Terminal UI**: React + [Ink](https://github.com/vadimdemedes/ink) (React for CLI)
+- **Scale**: ~1,900 files, 512,000+ lines of code
 
 ---
 
-## How it works
-
-### The loop
+## Directory Structure
 
 ```
-Observe → Analyze → Plan → Execute → Verify → (retry, max 3)
-```
-
-Not a linear prompt→response chain. The agent keeps going until the goal is verified or the loop exhausts. Think Kubernetes reconciliation, not shell script.
-
-### Two modes
-
-| Mode | Best for | How it verifies |
-|------|----------|----------------|
-| **TODO** | Tasks with clear acceptance criteria | Analyzes clarity, asks if criteria are missing, checks each one against evidence |
-| **Goal** | Open-ended objectives | Re-observes objects, computes before/after diff, returns confidence score |
-
-### Ontology object model
-
-The agent doesn't see raw strings. Each object carries four layers of context — what Palantir calls the Data-Logic-Actions triad plus Relations:
-
-- **State** — current snapshot (size, branch, exists, hash)
-- **Constraints** — what you can't do to this object ("no hardcoded keys", "don't write to /etc")
-- **Actions** — what you can do, with preconditions and side effects
-- **Relations** — what this object connects to (tested by, imported by, depends on)
-
-This full context is injected into every planning prompt. The LLM sees "file X, size 100, constraint: no system paths, related to test_auth.py, can read_file and write_file" — not just "file X".
-
----
-
-## Safety
-
-### Dont-Do rules
-
-Rules fire at runtime, not as prompt suggestions. Three hook points:
-
-```
-PLAN        → filter dangerous steps before execution
-PRE_ACTION  → block tool calls with bad parameters
-POST_ACTION → audit results for suspicious output
-```
-
-The agent enriches context before checking — extracts paths from params, sets `path_in_restricted` and `path_matches` automatically. A rule that says "block writes to /etc" actually catches `/etc/passwd`.
-
-### Trust boundaries (STRIDE)
-
-Every tool call crosses a trust boundary. Each STRIDE dimension has a mitigation:
-
-| Threat | How it's caught |
-|--------|----------------|
-| Spoofing | Role + DontDoEngine verify every call |
-| Tampering | Path-aware parameter inspection at PRE_ACTION |
-| Repudiation | Event Sourcing provides full audit trail |
-| Info leaks | POST_ACTION result filtering + credential guard |
-| DoS | max_iterations cap + interrupt handler |
-| Elevation | Role whitelist — tools outside the role can't be called |
-
-### Corrections
-
-User spots a problem? Drop a YAML in `corrections/`. The agent generates a dont-do rule, persists it, and replans. The same mistake never happens twice.
-
-### Self-healing tools
-
-Tools don't just execute — they evolve. When the agent hits a missing capability or a silent failure:
-
-```
-Tool fails → reads existing code → writes missing function → commits via git → retries
-```
-
-The verification system catches silent failures (tool reports "OK" but state didn't change). When detected, the agent writes a verify hook, attaches it to the tool, and retries. No developer intervention needed — the same healing pattern that powers Browser Harness.
-
-All agent-written code is git-committed with audit trail. Broken edits can be rolled back.
-
-### Architectural fitness functions
-
-23 automated tests verify architectural properties every CI run — dont-do effectiveness, role compliance, context efficiency, output format. Not "does it compile" — "does the architecture hold."
-
----
-
-## Memory
-
-**Episodic** — every task recorded with tools used, objects changed, rules fired. SQLite WAL with versioned migrations.
-
-**Event Sourcing** — 11 event types across the full lifecycle. Append-only log. Periodic snapshots. Full replay.
-
-**Semantic** — LLM-driven consolidation distills episodes into preferences, facts, and patterns with confidence scores.
-
-**Object history** — `get_object_history("file://src/main.py")` returns the complete change timeline across all episodes.
-
----
-
-## Intelligence
-
-**Capability routing** — per-model, per-task-type success tracking. Database migration on haiku keeps failing at 60%? The router upgrades to sonnet automatically. New task types fall back to cost-based routing. Based on Karpathy's Jagged Frontier.
-
-**Pattern mining** — mines past episodes for clusters: recurring errors → rule proposals, repeated corrections → skill proposals, common failures → plan hints. Agent proposes. Human decides (Taste principle).
-
----
-
-## Skills Network
-
-Knowledge doesn't die with the episode. Successful tasks are distilled into reusable skills:
-
-```
-Episode succeeds → LLM extracts approach → saves as Skill → future tasks auto-inject matching skills
-```
-
-Skills follow a social network lifecycle: **create → consume → rate → iterate → retire → merge**. Each use gets a +1 or -1 rating with a written reason — the reason matters more than the rating because it tells future agents exactly what broke. Score drops below -3? Auto-retired. Near-duplicate? Merged, feedback combined. PII gated before any skill is saved.
-
----
-
-## Browser Automation
-
-Raw Chrome DevTools Protocol, zero framework abstraction:
-
-```
-capture_screenshot() → read pixels → click_at_xy(x, y) → capture_screenshot() → verify
-```
-
-Coordinate-click default. Compositor-level events pierce through iframes, shadow DOM, and cross-origin boundaries. Playwright's "locate first, then click" reflex is explicitly suppressed — for vision-capable LLMs, pixels are more reliable than selectors.
-
-A persistent CDP daemon keeps the WebSocket alive across LLM cognitive pauses. The agent extends its own browser helpers at runtime via the same self-healing system.
-
----
-
-## Commands
-
-| Command | What it does |
-|--------|-------------|
-| `provider add` | Register an LLM provider (Anthropic, OpenAI, DeepSeek, custom) |
-| `provider list / test` | List or test registered providers |
-| `add discover` | Scan local machine for tools, skills, and MCP servers |
-| `add from-claude-code` | Import from Claude Code (skills, settings, plugins) |
-| `add from-cursor / from-codex / from-gemini` | Import from other coding agents |
-| `add skill <path>` | Register a skill by path |
-| `add mcp <command>` | Register an MCP server |
-| `add search <keyword>` | Search GitHub + MCP Registry for tools |
-| `publish init / build / verify` | Package and publish tools |
-| `run "task"` | Execute in TODO mode |
-| `run "goal" --mode goal` | Execute in Goal mode |
-| `info tools / dont-do / config` | Inspect current state |
-
----
-
-## Architecture
-
-Every module maps to a Linux kernel concept:
-
-| Module | Kernel analogy |
-|--------|---------------|
-| `core.py` | Process scheduler — event loop, context enrichment, capability recording |
-| `objects.py` | VFS inode + xattrs — Ontology object model (Data+Logic+Actions+Relations) |
-| `role.py` | seccomp — structured role with constraint/action generation |
-| `dont_do.py` | iptables — hook-based rule engine, path-aware matching |
-| `correction.py` | auditd — user feedback → rule closed loop |
-| `events.py` | journald — 11 event types for event sourcing |
-| `event_store.py` | ext4 journal — append-only log, snapshots, in-process pub/sub |
-| `memory.py` | ext4 WAL — episodic + semantic, FTS5 search |
-| `consolidation.py` | kswapd — LLM-driven episodic→semantic distillation |
-| `pattern_miner.py` | KSM — cross-episode pattern discovery |
-| `memory_migrations.py` | Alembic — versioned schema migrations |
-| `prompt.py` | ELF loader — prompt assembly + ontology context injection |
-| `context.py` | MMU — LRU context window management |
-| `output_format.py` | syslog — citation rules, progressive disclosure |
-| `providers/pool.py` | RAID 1 — failover with circuit breaker |
-| `providers/router.py` | cpufreq + NUMA — cost + capability-aware routing |
-| `providers/capability.py` | CPU affinity — Jagged Frontier per-task profiling |
-| `tools/registry.py` | udev — tool registration, lookup by object type |
-| `tools/executor.py` | execve — execution, credential injection, verification hooks |
-| `tools/evolution.py` | kpatch — runtime tool patching, git version control |
-| `tools/editor.py` | ptrace — agent tool editing interface |
-| `tools/supervisor.py` | systemd — MCP process lifecycle |
-| `tools/browser/` | kthread — CDP daemon, screenshot-first, coordinate-click default |
-| `skills/` | ld.so.cache — social learning network, PII gating, auto-retirement |
-| `security/` | LSM + keyring — credential guard, prompt injection defense |
-
-30 design documents, 80+ solution variants, 119 OS analogy mappings. [Feishu Wiki](https://ycn21rm70xup.feishu.cn/wiki/space/7644823612574141651).
-
----
-
-## Tests
-
-```bash
-pytest tests/ -v    # 302 passed, including 23 architectural fitness functions
+src/
+├── main.tsx                 # Entrypoint (Commander.js-based CLI parser)
+├── commands.ts              # Command registry
+├── tools.ts                 # Tool registry
+├── Tool.ts                  # Tool type definitions
+├── QueryEngine.ts           # LLM query engine (core Anthropic API caller)
+├── context.ts               # System/user context collection
+├── cost-tracker.ts          # Token cost tracking
+│
+├── commands/                # Slash command implementations (~50)
+├── tools/                   # Agent tool implementations (~40)
+├── components/              # Ink UI components (~140)
+├── hooks/                   # React hooks
+├── services/                # External service integrations
+├── screens/                 # Full-screen UIs (Doctor, REPL, Resume)
+├── types/                   # TypeScript type definitions
+├── utils/                   # Utility functions
+│
+├── bridge/                  # IDE integration bridge (VS Code, JetBrains)
+├── coordinator/             # Multi-agent coordinator
+├── plugins/                 # Plugin system
+├── skills/                  # Skill system
+├── keybindings/             # Keybinding configuration
+├── vim/                     # Vim mode
+├── voice/                   # Voice input
+├── remote/                  # Remote sessions
+├── server/                  # Server mode
+├── memdir/                  # Memory directory (persistent memory)
+├── tasks/                   # Task management
+├── state/                   # State management
+├── migrations/              # Config migrations
+├── schemas/                 # Config schemas (Zod)
+├── entrypoints/             # Initialization logic
+├── ink/                     # Ink renderer wrapper
+├── buddy/                   # Companion sprite (Easter egg)
+├── native-ts/               # Native TypeScript utils
+├── outputStyles/            # Output styling
+├── query/                   # Query pipeline
+└── upstreamproxy/           # Proxy configuration
 ```
 
 ---
 
-## License
+## Core Architecture
 
-MIT
+### 1. Tool System (`src/tools/`)
+
+Every tool Claude Code can invoke is implemented as a self-contained module. Each tool defines its input schema, permission model, and execution logic.
+
+| Tool | Description |
+|---|---|
+| `BashTool` | Shell command execution |
+| `FileReadTool` | File reading (images, PDFs, notebooks) |
+| `FileWriteTool` | File creation / overwrite |
+| `FileEditTool` | Partial file modification (string replacement) |
+| `GlobTool` | File pattern matching search |
+| `GrepTool` | ripgrep-based content search |
+| `WebFetchTool` | Fetch URL content |
+| `WebSearchTool` | Web search |
+| `AgentTool` | Sub-agent spawning |
+| `SkillTool` | Skill execution |
+| `MCPTool` | MCP server tool invocation |
+| `LSPTool` | Language Server Protocol integration |
+| `NotebookEditTool` | Jupyter notebook editing |
+| `TaskCreateTool` / `TaskUpdateTool` | Task creation and management |
+| `SendMessageTool` | Inter-agent messaging |
+| `TeamCreateTool` / `TeamDeleteTool` | Team agent management |
+| `EnterPlanModeTool` / `ExitPlanModeTool` | Plan mode toggle |
+| `EnterWorktreeTool` / `ExitWorktreeTool` | Git worktree isolation |
+| `ToolSearchTool` | Deferred tool discovery |
+| `CronCreateTool` | Scheduled trigger creation |
+| `RemoteTriggerTool` | Remote trigger |
+| `SleepTool` | Proactive mode wait |
+| `SyntheticOutputTool` | Structured output generation |
+
+### 2. Command System (`src/commands/`)
+
+User-facing slash commands invoked with `/` prefix.
+
+| Command | Description |
+|---|---|
+| `/commit` | Create a git commit |
+| `/review` | Code review |
+| `/compact` | Context compression |
+| `/mcp` | MCP server management |
+| `/config` | Settings management |
+| `/doctor` | Environment diagnostics |
+| `/login` / `/logout` | Authentication |
+| `/memory` | Persistent memory management |
+| `/skills` | Skill management |
+| `/tasks` | Task management |
+| `/vim` | Vim mode toggle |
+| `/diff` | View changes |
+| `/cost` | Check usage cost |
+| `/theme` | Change theme |
+| `/context` | Context visualization |
+| `/pr_comments` | View PR comments |
+| `/resume` | Restore previous session |
+| `/share` | Share session |
+| `/desktop` | Desktop app handoff |
+| `/mobile` | Mobile app handoff |
+
+### 3. Service Layer (`src/services/`)
+
+| Service | Description |
+|---|---|
+| `api/` | Anthropic API client, file API, bootstrap |
+| `mcp/` | Model Context Protocol server connection and management |
+| `oauth/` | OAuth 2.0 authentication flow |
+| `lsp/` | Language Server Protocol manager |
+| `analytics/` | GrowthBook-based feature flags and analytics |
+| `plugins/` | Plugin loader |
+| `compact/` | Conversation context compression |
+| `policyLimits/` | Organization policy limits |
+| `remoteManagedSettings/` | Remote managed settings |
+| `extractMemories/` | Automatic memory extraction |
+| `tokenEstimation.ts` | Token count estimation |
+| `teamMemorySync/` | Team memory synchronization |
+
+### 4. Bridge System (`src/bridge/`)
+
+A bidirectional communication layer connecting IDE extensions (VS Code, JetBrains) with the Claude Code CLI.
+
+- `bridgeMain.ts` — Bridge main loop
+- `bridgeMessaging.ts` — Message protocol
+- `bridgePermissionCallbacks.ts` — Permission callbacks
+- `replBridge.ts` — REPL session bridge
+- `jwtUtils.ts` — JWT-based authentication
+- `sessionRunner.ts` — Session execution management
+
+### 5. Permission System (`src/hooks/toolPermission/`)
+
+Checks permissions on every tool invocation. Either prompts the user for approval/denial or automatically resolves based on the configured permission mode (`default`, `plan`, `bypassPermissions`, `auto`, etc.).
+
+### 6. Feature Flags
+
+Dead code elimination via Bun's `bun:bundle` feature flags:
+
+```typescript
+import { feature } from 'bun:bundle'
+
+// Inactive code is completely stripped at build time
+const voiceCommand = feature('VOICE_MODE')
+  ? require('./commands/voice/index.js').default
+  : null
+```
+
+Notable flags: `PROACTIVE`, `KAIROS`, `BRIDGE_MODE`, `DAEMON`, `VOICE_MODE`, `AGENT_TRIGGERS`, `MONITOR_TOOL`
+
+---
+
+## Key Files in Detail
+
+### `QueryEngine.ts` (~46K lines)
+
+The core engine for LLM API calls. Handles streaming responses, tool-call loops, thinking mode, retry logic, and token counting.
+
+### `Tool.ts` (~29K lines)
+
+Defines base types and interfaces for all tools — input schemas, permission models, and progress state types.
+
+### `commands.ts` (~25K lines)
+
+Manages registration and execution of all slash commands. Uses conditional imports to load different command sets per environment.
+
+### `main.tsx`
+
+Commander.js-based CLI parser + React/Ink renderer initialization. At startup, parallelizes MDM settings, keychain prefetch, and GrowthBook initialization for faster boot.
+
+---
+
+## Tech Stack
+
+| Category | Technology |
+|---|---|
+| Runtime | [Bun](https://bun.sh) |
+| Language | TypeScript (strict) |
+| Terminal UI | [React](https://react.dev) + [Ink](https://github.com/vadimdemedes/ink) |
+| CLI Parsing | [Commander.js](https://github.com/tj/commander.js) (extra-typings) |
+| Schema Validation | [Zod v4](https://zod.dev) |
+| Code Search | [ripgrep](https://github.com/BurntSushi/ripgrep) (via GrepTool) |
+| Protocols | [MCP SDK](https://modelcontextprotocol.io), LSP |
+| API | [Anthropic SDK](https://docs.anthropic.com) |
+| Telemetry | OpenTelemetry + gRPC |
+| Feature Flags | GrowthBook |
+| Auth | OAuth 2.0, JWT, macOS Keychain |
+
+---
+
+## Notable Design Patterns
+
+### Parallel Prefetch
+
+Startup time is optimized by prefetching MDM settings, keychain reads, and API preconnect in parallel — before heavy module evaluation begins.
+
+```typescript
+// main.tsx — fired as side-effects before other imports
+startMdmRawRead()
+startKeychainPrefetch()
+```
+
+### Lazy Loading
+
+Heavy modules (OpenTelemetry ~400KB, gRPC ~700KB) are deferred via dynamic `import()` until actually needed.
+
+### Agent Swarms
+
+Sub-agents are spawned via `AgentTool`, with `coordinator/` handling multi-agent orchestration. `TeamCreateTool` enables team-level parallel work.
+
+### Skill System
+
+Reusable workflows defined in `skills/` and executed through `SkillTool`. Users can add custom skills.
+
+### Plugin Architecture
+
+Built-in and third-party plugins are loaded through the `plugins/` subsystem.
+
+---
+
+## Disclaimer
+
+This repository archives source code that was leaked from Anthropic's npm registry on **2026-03-31**. All original source code is the property of [Anthropic](https://www.anthropic.com).

@@ -1,0 +1,24 @@
+[2026-05-29T07:54:46.502Z] [INFO] [Bootstrap] Starting MySQL MCP Server...
+[2026-05-29T07:54:46.502Z] [INFO] [Bootstrap] Database: localhost:3306/ai_library
+[2026-05-29T07:54:46.503Z] [INFO] [Bootstrap] MCP Transport: stdio
+[2026-05-29T07:54:46.503Z] [INFO] [Bootstrap] Log Level: info
+[2026-05-29T07:54:46.503Z] [INFO] [Bootstrap] Log dir: D:\GitHub\claude-code-main\src\logs
+[2026-05-29T07:54:46.815Z] [INFO] [NestFactory] Starting Nest application...
+[2026-05-29T07:54:46.827Z] [INFO] [InstanceLoader] AppModule dependencies initialized
+[2026-05-29T07:54:46.827Z] [INFO] [InstanceLoader] ConfigModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] LoggerModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] MySqlModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] McpFeatureModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] ConfigHostModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] DiscoveryModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] ToolsModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] ConfigModule dependencies initialized
+[2026-05-29T07:54:46.828Z] [INFO] [InstanceLoader] McpModule dependencies initialized
+[2026-05-29T07:54:46.832Z] [INFO] [MySqlService] MySQL pool initialized: localhost:3306/ai_library
+[2026-05-29T07:54:46.832Z] [INFO] [SsePingService] Initializing SSE ping service
+[2026-05-29T07:54:46.833Z] [INFO] [AppModule] MySQL MCP Server initialized
+[2026-05-29T07:54:46.835Z] [INFO] [StdioService] Bootstrapping MCP STDIO...
+[2026-05-29T07:54:46.841Z] [INFO] [StdioService] MCP STDIO ready
+[2026-05-29T07:54:46.841Z] [INFO] [NestApplication] Nest application successfully started
+[2026-05-29T07:54:46.841Z] [INFO] [Bootstrap] MCP Server ready on stdio transport
+[2026-05-29T07:54:46.841Z] [INFO] [Bootstrap] Server: mysql-mcp-server v1.0.0
