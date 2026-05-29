@@ -82,35 +82,70 @@ class TestEscalate:
 
 
 class TestDetectProviders:
-    def test_no_env_vars_returns_empty(self, monkeypatch):
+    def test_no_env_vars_empty_config(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        providers = detect_providers()
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+        providers = detect_providers(config={})
         assert len(providers) == 0
 
     def test_openai_detected(self, monkeypatch):
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        providers = detect_providers()
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+        providers = detect_providers(config={})
         names = [p.name for p in providers]
-        assert "openai-mini" in names
-        assert "openai-large" in names
+        assert "openai" in names
+        assert "openai-l" in names
 
     def test_deepseek_detected(self, monkeypatch):
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-        providers = detect_providers()
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+        providers = detect_providers(config={})
         assert len(providers) == 1
         assert providers[0].name == "deepseek"
+
+    def test_config_file_detection(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+        config = {
+            "providers": {
+                "qwen": {"api_key": "sk-from-config", "model": "qwen-plus"},
+            },
+            "provider": "qwen",
+        }
+        providers = detect_providers(config=config)
+        assert len(providers) >= 1
+        names = [p.name for p in providers]
+        assert "qwen" in names
+
+    def test_config_file_detection_no_api_key(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+        config = {"providers": {"qwen": {}}}  # no api_key
+        providers = detect_providers(config=config)
+        assert len(providers) == 0
 
     def test_sorted_by_cost(self, monkeypatch):
         monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        providers = detect_providers()
+        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
+        monkeypatch.delenv("ALI_TONGYI_KEY", raising=False)
+        providers = detect_providers(config={})
         costs = [p.cost_per_1k for p in providers]
         assert costs == sorted(costs)
 
