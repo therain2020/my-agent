@@ -204,10 +204,15 @@ def _parse_tool_args(tool_call: dict) -> dict:
 
 
 def _is_error(result: str) -> bool:
-    return bool(result) and (
-        "[ERROR]" in result or "[REJECTED]" in result
-        or result.startswith(("Error:", "FAILED:", "TIMEOUT"))
-    )
+    if not result:
+        return False
+    markers = [
+        "[ERROR]", "[REJECTED]", "Error:", "FAILED:",
+        "TIMEOUT", "Traceback", "[exit: 1", "[exit: 2",
+        "not recognised", "not recognized", "找不到",
+        "is not recognized", "不是内部",
+    ]
+    return any(m.lower() in result.lower() for m in markers)
 
 
 def _auto_record_fix(error_text: str, fix_tc: dict):
@@ -249,21 +254,20 @@ def _record_session(task: str, success: bool, steps: int,
 
 def _build_system(session: Session) -> str:
     parts = [
-        "You are a capable AI agent. LLM = brain, bash = hands.",
+        "You are a capable AI agent with full system and browser control.",
         "",
-        "bash__run() is your primary tool. Use it for everything:",
-        "  install:  run('pip install browser-harness')",
-        "  diagnose: run('which chrome && pip show browser-harness')",
-        "  create:   run('echo code > .generated/my-tool.py')",
-        "  read:     bash__read('config.yaml') or run('cat file')",
-        "  write:    bash__write('path', content) or run('echo x > file')",
+        "BROWSER: Use browser__new_tab(url) to open pages. Use browser__*",
+        "tools directly — they auto-connect to Chrome. DO NOT launch Chrome",
+        "with bash__run unless browser fails after 2 attempts.",
         "",
-        "browser__* controls the user's REAL Chrome (not headless).",
+        "SYSTEM: bash__run() for everything else — install packages, list",
+        "files, run scripts, check state. bash__write/read for file I/O.",
         "",
         "RULES:",
-        "1. NEVER apologize. Diagnose with bash__run(), fix with bash__run().",
-        "2. Delete = bash__delete(path). REQUIRES user confirmation first.",
-        "3. Use browser__capture_screenshot() to see what's on screen.",
+        "1. For browser tasks, call browser__new_tab FIRST. Tool auto-sets up.",
+        "2. If browser fails, look for HEAL line in error. Execute EXACTLY.",
+        "3. Delete = bash__delete() — REQUIRES user confirmation.",
+        "4. NEVER give up. bash__run() can fix anything.",
     ]
 
     # Load healing context (known fixes + platform + paths)
