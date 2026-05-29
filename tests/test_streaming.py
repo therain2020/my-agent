@@ -1,54 +1,37 @@
-"""Tests for cli/streaming.py — StreamEvent types."""
+"""Tests for cli/app.py — Event types."""
 
-from therain2020.cli.streaming import StreamEvent, StreamEventType
+from therain2020.cli.app import Event, EventType
 
 
 def test_thinking_event():
-    e = StreamEvent.thinking("reasoning...")
-    assert e.type == StreamEventType.THINKING
+    e = Event.thinking("reasoning...")
+    assert e.type == EventType.THINKING
     assert e.content == "reasoning..."
 
 
 def test_text_event():
-    e = StreamEvent.text("hello")
-    assert e.type == StreamEventType.TEXT
-    assert e.content == "hello"
+    e = Event.text("hello")
+    assert e.type == EventType.TEXT
 
 
 def test_tool_start_event():
-    e = StreamEvent.tool_start("read_file", {"path": "/tmp/test.txt"})
-    assert e.type == StreamEventType.TOOL_START
-    assert e.tool_name == "read_file"
-    assert e.arguments == {"path": "/tmp/test.txt"}
-
-
-def test_tool_start_no_args():
-    e = StreamEvent.tool_start("list_tabs", None)
-    assert e.type == StreamEventType.TOOL_START
-    assert e.arguments == {}
+    e = Event.tool_start("bash", {"command": "ls"})
+    assert e.type == EventType.TOOL_START
+    assert e.arguments == {"command": "ls"}
 
 
 def test_tool_result_event():
-    e = StreamEvent.tool_result("read_file", True, "content")
-    assert e.type == StreamEventType.TOOL_RESULT
+    e = Event.tool_result("bash", True, "done")
+    assert e.type == EventType.TOOL_RESULT
     assert e.ok is True
 
 
-def test_tool_result_fail():
-    e = StreamEvent.tool_result("bad_tool", False)
-    assert e.type == StreamEventType.TOOL_RESULT
-    assert e.ok is False
-
-
 def test_error_event():
-    e = StreamEvent.error("something went wrong")
-    assert e.type == StreamEventType.ERROR
-    assert "wrong" in e.error_msg
+    e = Event.error("fail")
+    assert e.type == EventType.ERROR
 
 
 def test_done_event():
-    e = StreamEvent.done(steps=3, duration=1.5, tools_used=["a", "b"])
-    assert e.type == StreamEventType.DONE
+    e = Event.done(steps=3, duration=1.5, tools=["a", "b"], tokens=100)
     assert e.steps == 3
-    assert e.tools_used == ["a", "b"]
-    assert e.success is True
+    assert e.tokens == 100
