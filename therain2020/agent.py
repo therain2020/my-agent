@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import time
-import traceback
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -228,6 +227,20 @@ def _auto_record_fix(error_text: str, fix_tc: dict):
         pass
 
 
+def _format_error(e: Exception) -> str:
+    """Claude Code pattern: show message, not traceback. Max 10 lines."""
+    msg = str(e).strip()
+    if not msg:
+        return "[ERROR] Tool execution failed"
+    if "InputValidationError" in msg or "validation error" in msg.lower():
+        return "[ERROR] Invalid tool parameters"
+    lines = msg.split("\n")
+    if len(lines) > 10:
+        msg = "\n".join(lines[:10])
+        msg += f"\n  ... +{len(lines) - 10} more lines"
+    return f"[ERROR] {msg}"
+
+
 def _get_last_tool_result(session: Session) -> str:
     """Get the most recent tool result from conversation history."""
     for m in reversed(session.conversation):
@@ -331,9 +344,9 @@ async def _execute_tool(
     try:
         result = _dispatch_tool(tool_name, cap_name, args)
         tools_used.append(name)
-    except Exception:
-        result = f"[ERROR] {traceback.format_exc()}"
-        result = get_healing().enrich_error(result, tool_name)
+    except Exception as e:
+        msg = _format_error(e)
+        result = get_healing().enrich_error(msg, tool_name)
 
     # POST_ACTION safety check
     session.safety.check("POST_ACTION", {"tool": name, "result": result})
