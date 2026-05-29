@@ -172,8 +172,7 @@ import {
   isMcpInstructionsDeltaEnabled,
   type ClientSideInstruction,
 } from './mcpInstructionsDelta.js'
-import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
-import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
+// claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
 import type { MCPServerConnection } from '../services/mcp/types.js'
 import type {
   HookEvent,
