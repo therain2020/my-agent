@@ -580,6 +580,7 @@ const _pendingSSH: PendingSSH | undefined = feature('SSH_REMOTE') ? {
   extraCliArgs: []
 } : undefined;
 export async function main() {
+  process.stderr.write("[DIAG] main() entered\n")
   profileCheckpoint('main_function_start');
 
   // SECURITY: Prevent Windows from executing commands from current directory
@@ -847,8 +848,10 @@ export async function main() {
 
   // Parse and load settings flags early, before init()
   eagerLoadSettings();
+  process.stderr.write("[DIAG] before run()\n")
   profileCheckpoint('main_before_run');
   await run();
+  process.stderr.write("[DIAG] after run()\n")
   profileCheckpoint('main_after_run');
 }
 async function getInputPrompt(prompt: string, inputFormat: 'text' | 'stream-json'): Promise<string | AsyncIterable<string>> {
@@ -911,6 +914,7 @@ async function run(): Promise<CommanderCommand> {
     await Promise.all([ensureMdmSettingsLoaded(), ensureKeychainPrefetchCompleted()]);
     profileCheckpoint('preAction_after_mdm');
     await init();
+    process.stderr.write("[DIAG] after init()\n")
     profileCheckpoint('preAction_after_init');
 
     // process.title on Windows sets the console title directly; on POSIX,
@@ -1859,6 +1863,7 @@ async function run(): Promise<CommanderCommand> {
     // ~28ms setupPromise await before Promise.all joins them below.
     commandsPromise?.catch(() => {});
     agentDefsPromise?.catch(() => {});
+    process.stderr.write("[DIAG] before setup()\n")
     await setupPromise;
     logForDebugging(`[STARTUP] setup() completed in ${Date.now() - setupStart}ms`);
     profileCheckpoint('action_after_setup');
@@ -3811,11 +3816,14 @@ async function run(): Promise<CommanderCommand> {
   const isPrintMode = process.argv.includes('-p') || process.argv.includes('--print');
   const isCcUrl = process.argv.some(a => a.startsWith('cc://') || a.startsWith('cc+unix://'));
   if (isPrintMode && !isCcUrl) {
+    process.stderr.write("[DIAG] print mode, before parseAsync\n")
     profileCheckpoint('run_before_parse');
     await program.parseAsync(process.argv);
+    process.stderr.write("[DIAG] after parseAsync\n")
     profileCheckpoint('run_after_parse');
     return program;
   }
+  process.stderr.write("[DIAG] interactive path, after print block\n")
 
   // claude mcp
 
@@ -4428,8 +4436,10 @@ Examples:
       await completionHandler(shell, opts, program);
     });
   }
+  process.stderr.write("[DIAG] interactive mode, before parseAsync\n")
   profileCheckpoint('run_before_parse');
   await program.parseAsync(process.argv);
+  process.stderr.write("[DIAG] after interactive parseAsync\n")
   profileCheckpoint('run_after_parse');
 
   // Record final checkpoint for total_time calculation
