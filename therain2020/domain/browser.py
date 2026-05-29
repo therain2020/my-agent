@@ -68,17 +68,45 @@ def _find_chrome() -> str | None:
     return None
 
 
+def _start_daemon() -> bool:
+    """Try to start browser-harness daemon. Returns True if ping succeeds."""
+    env = {**os.environ, "BU_CDP_URL": f"http://127.0.0.1:{_PORT}"}
+
+    # Strategy 1: browser-harness CLI
+    bh = shutil.which("browser-harness")
+    if bh:
+        subprocess.Popen(
+            [bh], env=env,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        for _ in range(15):
+            time.sleep(0.5)
+            if ipc.ping(_DAEMON, timeout=0.5):
+                return True
+
+    # Strategy 2: python -m browser_harness.daemon
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "browser_harness.daemon"],
+            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        for _ in range(15):
+            time.sleep(0.5)
+            if ipc.ping(_DAEMON, timeout=0.5):
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
 def _ensure_ready():
     global _READY
-    if _READY:
-        return
-    if ipc.ping(_DAEMON, timeout=0.5):
-        _READY = True
+    if _READY and ipc.ping(_DAEMON, timeout=0.5):
         return
 
     from ..healing import get as get_heal
 
-    # Try to start Chrome + daemon
     chrome = _find_chrome()
     if not chrome:
         raise RuntimeError(
@@ -89,17 +117,14 @@ def _ensure_ready():
                            ".therain2020-agent", "chrome-profile")
     os.makedirs(profile, exist_ok=True)
 
-    # If Chrome already listening, just start daemon
     import urllib.request
     try:
         urllib.request.urlopen(f"http://127.0.0.1:{_PORT}/json/version", timeout=1).close()
     except Exception:
-        # Launch Chrome
         cmd = f'start "" "{chrome}" --remote-debugging-port={_PORT} --user-data-dir="{profile}"'
         if sys.platform != "win32":
             cmd = f'"{chrome}" --remote-debugging-port={_PORT} --user-data-dir="{profile}" &'
         subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        # Wait for Chrome
         for _ in range(15):
             time.sleep(1)
             try:
@@ -110,28 +135,24 @@ def _ensure_ready():
             except Exception:
                 pass
 
-    # Start browser-harness daemon
-    subprocess.Popen(
-        [sys.executable, "-m", "browser_harness.daemon"],
-        env={**os.environ, "BU_CDP_URL": f"http://127.0.0.1:{_PORT}"},
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-    # Wait for daemon to be ready
-    for _ in range(10):
-        time.sleep(0.5)
-        if ipc.ping(_DAEMON, timeout=0.5):
-            break
+    # Start daemon — MUST succeed before we mark ready
+    if _start_daemon():
+        _READY = True
+        get_heal().record(
+            "daemon not running",
+            f'bash__run("\\"{chrome}\\" --remote-debugging-port={_PORT} --user-data-dir=\\"{profile}\\"") '
+            f'&& bash__run("browser-harness")',
+            "browser", success=True,
+        )
+        return
 
-    # Record the fix (Chrome + daemon recipe)
-    full_cmd = (
-        f'bash__run("{chrome} --remote-debugging-port={_PORT} '
-        f'--user-data-dir={profile}") '
-        f'&& bash__run("python -m browser_harness.daemon")'
+    raise RuntimeError(
+        "Cannot start browser daemon.\n\n"
+        "HEAL (try in order):\n"
+        "  1. bash__run('pip install browser-harness')\n"
+        "  2. bash__run('browser-harness')\n"
+        "  3. Open chrome://inspect/#remote-debugging in Chrome, tick checkbox"
     )
-    get_heal().record(
-        "daemon not running", full_cmd, "browser", success=True,
-    )
-    _READY = True
 
 
 # -- navigation ----------------------------------------------------------
