@@ -57,6 +57,8 @@ class LLMProvider:
         self.name = name
         self.model = model
         self.cost_per_1k = cost_per_1k
+        self._base_url: str | None = None
+        self._api_key: str | None = None
 
     async def complete(
         self,
@@ -69,9 +71,11 @@ class LLMProvider:
         if "anthropic" in self.name:
             return await _complete_anthropic(
                 self.model, messages, tools, tool_choice, max_tokens,
+                api_key=self._api_key,
             )
         return await _complete_openai(
             self.model, messages, tools, tool_choice, max_tokens,
+            base_url=self._base_url, api_key=self._api_key,
         )
 
     def token_count(self, text: str) -> int:
@@ -81,13 +85,17 @@ class LLMProvider:
         return f"LLMProvider({self.name}, {self.model})"
 
 
-async def _complete_openai(model, messages, tools, tool_choice, max_tokens):
+async def _complete_openai(model, messages, tools, tool_choice, max_tokens, base_url=None, api_key=None):
     import openai
-    client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    key = api_key or os.environ.get("OPENAI_API_KEY")
+    kwargs = {}
+    if base_url:
+        kwargs["base_url"] = base_url
+    client = openai.AsyncOpenAI(api_key=key, **kwargs)
     if "deepseek" in model:
         client = openai.AsyncOpenAI(
-            api_key=os.environ.get("DEEPSEEK_API_KEY"),
-            base_url="https://api.deepseek.com/v1",
+            api_key=api_key or os.environ.get("DEEPSEEK_API_KEY"),
+            base_url=base_url or "https://api.deepseek.com/v1",
         )
     kwargs = {
         "model": model,
@@ -115,11 +123,11 @@ async def _complete_openai(model, messages, tools, tool_choice, max_tokens):
     )
 
 
-async def _complete_anthropic(model, messages, tools, tool_choice, max_tokens):
+async def _complete_anthropic(model, messages, tools, tool_choice, max_tokens, api_key=None):
     import json
 
     import anthropic
-    client = anthropic.AsyncAnthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    client = anthropic.AsyncAnthropic(api_key=api_key or os.environ.get("ANTHROPIC_API_KEY"))
     system = ""
     user_messages = []
     for m in messages:
@@ -174,12 +182,43 @@ def _tools_to_anthropic(tools: list[dict]) -> list[dict]:
 
 # -- provider detection & routing ---------------------------------------
 
-def detect_providers() -> list[LLMProvider]:
-    """Scan env vars for available LLM providers. Sorted by cost (cheapest first)."""
+def detect_providers(config: dict | None = None) -> list[LLMProvider]:
+    """Scan env vars + config file for available LLM providers. Sorted by cost.
+
+    Env vars take priority over config file. If a config file specifies an
+    active provider, it's included even without an env var.
+    """
+    if config is None:
+        try:
+            from .config import load_config
+            config = load_config()
+        except Exception:
+            config = {}
+
     providers = []
+    active_name = config.get("provider")
+
     for name, env_var, model, cost in _PROVIDER_REGISTRY:
+        # Check env var first
         if os.environ.get(env_var):
             providers.append(LLMProvider(name, model, cost_per_1k=cost))
+        # Then check config file
+        elif config and name in config.get("providers", {}):
+            prov = config["providers"][name]
+            if prov.get("api_key"):
+                cfg_model = prov.get("model") or model
+                providers.append(LLMProvider(name, cfg_model, cost_per_1k=cost))
+
+    # If active provider is set but wasn't found via env/config, add it anyway
+    if active_name:
+        names = {p.name for p in providers}
+        base_names = {n.split("-")[0] for n in names}
+        if active_name not in names and active_name not in base_names:
+            for name, env_var, model, cost in _PROVIDER_REGISTRY:
+                if name == active_name:
+                    providers.append(LLMProvider(name, model, cost_per_1k=cost))
+                    break
+
     providers.sort(key=lambda p: p.cost_per_1k)
     return providers
 

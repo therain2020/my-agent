@@ -1,6 +1,7 @@
 """Minimal CLI — Claude Code style.
 
 Usage:
+    therain2020 --setup       (one-time provider config)
     therain2020 <task>
     therain2020 --repl
     echo <task> | therain2020
@@ -37,9 +38,15 @@ def cli():
 
     if args and args[0] in ("-h", "--help"):
         print("Usage:")
+        print("  therain2020 --setup    (one-time config)")
+        print("  therain2020 --repl     (interactive)")
         print("  therain2020 <task>")
-        print("  therain2020 --repl")
         print("  echo <task> | therain2020")
+        return
+
+    if args and args[0] == "--setup":
+        from .setup_wizard import run_setup
+        run_setup()
         return
 
     if args and args[0] == "--repl":
@@ -47,8 +54,9 @@ def cli():
         return
 
     if not args and sys.stdin.isatty():
-        print("Usage: therain2020 <task>")
+        print("Usage: therain2020 --setup")
         print("       therain2020 --repl")
+        print("       therain2020 <task>")
         print("       echo <task> | therain2020")
         sys.exit(1)
 

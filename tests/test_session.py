@@ -5,11 +5,15 @@ import pytest
 from therain2020.session import Session, create_session
 
 
-def test_create_session_requires_provider(monkeypatch):
+def test_create_session_requires_provider(monkeypatch, tmp_path):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="No LLM provider"):
+        create_session(task="hello", config={}, interactive=False)
         create_session(task="hello")
 
 
