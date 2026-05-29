@@ -46,7 +46,24 @@ def _send(method: str, params: dict | None = None) -> dict:
 
 # -- internal: connection ------------------------------------------------
 
+def _cache_path(name: str, value: str):
+    try:
+        from ..healing import get as get_heal
+        get_heal().remember_path(name, value)
+    except Exception:
+        pass
+
+
 def _find_chrome() -> str | None:
+    # 1. Cached path from healing DB
+    try:
+        from ..healing import get as get_heal
+        cached = get_heal().get_path("chrome")
+        if cached and os.path.isfile(cached):
+            return cached
+    except Exception:
+        pass
+
     if sys.platform == "win32":
         for pf in (
             os.environ.get("ProgramFiles", r"C:\Program Files"),
@@ -58,6 +75,7 @@ def _find_chrome() -> str | None:
             ):
                 p = os.path.join(pf, sub)
                 if os.path.isfile(p):
+                    _cache_path("chrome", p)
                     return p
         try:
             import winreg
@@ -67,6 +85,7 @@ def _find_chrome() -> str | None:
                         with winreg.OpenKey(root, sub) as k:
                             val = winreg.QueryValue(k, "")
                             if val and os.path.isfile(val):
+                                _cache_path("chrome", val)
                                 return val
                     except OSError:
                         pass
@@ -134,11 +153,7 @@ def _ensure_ready():
 
     # Find or create a page target
     targets = _send("Target.getTargets")["targetInfos"]
-    pages = [
-        t for t in targets
-        if t["type"] == "page"
-        and not t.get("url", "").startswith(("chrome://", "devtools://"))
-    ]
+    pages = [t for t in targets if t["type"] == "page"]
     if pages:
         tid = pages[0]["targetId"]
     else:
@@ -153,14 +168,13 @@ def _ensure_ready():
 
 def new_tab(url: str = "about:blank") -> str:
     _ensure_ready()
-    tid = _send("Target.createTarget", {"url": "about:blank"})["targetId"]
+    tid = _send("Target.createTarget", {"url": url})["targetId"]
     global _SID
     _SID = _send("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
     _send("Page.enable")
-    if url != "about:blank":
-        _send("Page.navigate", {"url": url})
+    time.sleep(0.5)
     info = page_info()
-    return f"Tab opened: {info.get('title', '')} — {info.get('url', url)}"
+    return f"Tab opened: {info.get('title', url)} — {info.get('url', url)}"
 
 
 def goto_url(url: str) -> dict:
