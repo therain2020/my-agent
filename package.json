@@ -1,0 +1,82 @@
+{
+  "name": "therain2020-agent",
+  "version": "0.1.0",
+  "description": "Self-healing, self-evolving AI agent. Modifies its own source code to fix bugs and autonomously grows new capabilities.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "therain2020": "./dist/cli.js"
+  },
+  "main": "./dist/main.js",
+  "scripts": {
+    "dev": "bun run src/main.tsx",
+    "build": "bun build src/main.tsx --target=bun --outdir=dist --minify",
+    "start": "bun run dist/main.js",
+    "typecheck": "bun run --bun tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.43.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@commander-js/extra-typings": "^13.0.0",
+    "@modelcontextprotocol/sdk": "^1.10.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.57.0",
+    "@opentelemetry/sdk-logs": "^0.57.0",
+    "@opentelemetry/sdk-metrics": "^1.30.0",
+    "@opentelemetry/sdk-trace-base": "^1.30.0",
+    "auto-bind": "^5.0.1",
+    "axios": "^1.7.0",
+    "chalk": "^5.4.0",
+    "commander": "^13.0.0",
+    "figures": "^6.1.0",
+    "highlight.js": "^11.10.0",
+    "ignore": "^7.0.0",
+    "lodash-es": "^4.17.21",
+    "proper-lockfile": "^4.1.2",
+    "react": "^19.0.0",
+    "react-reconciler": "^0.31.0",
+    "semver": "^7.6.0",
+    "strip-ansi": "^7.1.0",
+    "type-fest": "^4.30.0",
+    "undici": "^7.0.0",
+    "usehooks-ts": "^3.1.0",
+    "wrap-ansi": "^9.0.0",
+    "ws": "^8.18.0",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0"
+  },
+  "optionalDependencies": {
+    "modifiers-napi": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/semver": "^7.5.0",
+    "@types/ws": "^8.5.0",
+    "bun-types": "latest",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/therain2020/therain2020-agent"
+  },
+  "keywords": [
+    "self-healing",
+    "self-evolution",
+    "ai-agent",
+    "claude-code",
+    "agent-framework",
+    "llm-agent",
+    "typescript",
+    "bun",
+    "closed-loop",
+    "self-modification"
+  ],
+  "files": [
+    "dist/",
+    "src/",
+    "CLAUDE.md"
+  ]
+}
