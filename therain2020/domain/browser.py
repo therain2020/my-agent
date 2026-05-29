@@ -1,7 +1,7 @@
-"""Browser domain tool — real CDP via browser-harness IPC.
+"""Browser — direct CDP WebSocket to Chrome. No daemon, no deps.
 
-Self-healing: _ensure_ready() auto-finds Chrome, launches with
-remote debugging, starts daemon. Uses healing DB for known paths.
+Chrome must be running with --remote-debugging-port=9222.
+_ensure_ready() auto-finds and launches Chrome if needed.
 """
 
 from __future__ import annotations
@@ -13,237 +13,182 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
-from .. import _ipc as ipc
+import websocket  # websocket-client (sync)
 
-_DAEMON = "default"
 _PORT = 9222
-_READY = False
+_WS: websocket.WebSocket | None = None
+_SID = ""  # CDP session ID
+_MSG_ID = 0
 
 
-def _cdp(method, **params):
-    try:
-        return ipc.cdp(method, name=_DAEMON, **params)
-    except (FileNotFoundError, ConnectionRefusedError, TimeoutError, OSError) as e:
-        raise RuntimeError(f"browser daemon not running: {e}")
+# -- internal: CDP -------------------------------------------------------
 
+def _next_id():
+    global _MSG_ID
+    _MSG_ID += 1
+    return _MSG_ID
+
+
+def _send(method: str, params: dict | None = None) -> dict:
+    msg = {"id": _next_id(), "method": method, "params": params or {}}
+    if _SID:
+        msg["sessionId"] = _SID
+    _WS.send(json.dumps(msg))
+    raw = _WS.recv()
+    data = json.loads(raw)
+    if "error" in data:
+        raise RuntimeError(data["error"].get("message", str(data["error"])))
+    return data.get("result", {})
+
+
+# -- internal: connection ------------------------------------------------
 
 def _find_chrome() -> str | None:
-    from ..healing import get as get_heal
-    # 1. Known path from healing DB
-    known = get_heal().get_path("chrome")
-    if known and os.path.isfile(known):
-        return known
-    # 2. Search
     if sys.platform == "win32":
-        for pf in (os.environ.get("ProgramFiles", r"C:\Program Files"),
-                    os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")):
-            for sub in (r"Google\Chrome\Application\chrome.exe",
-                        r"Microsoft\Edge\Application\msedge.exe"):
+        for pf in (
+            os.environ.get("ProgramFiles", r"C:\Program Files"),
+            os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+        ):
+            for sub in (
+                r"Google\Chrome\Application\chrome.exe",
+                r"Microsoft\Edge\Application\msedge.exe",
+            ):
                 p = os.path.join(pf, sub)
                 if os.path.isfile(p):
-                    get_heal().remember_path("chrome", p)
                     return p
-        # Try registry
         try:
             import winreg
             for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
                 for sub in (r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe",):
                     try:
                         with winreg.OpenKey(root, sub) as k:
-                            p = winreg.QueryValue(k, "")
-                            if p and os.path.isfile(p):
-                                get_heal().remember_path("chrome", p)
-                                return p
+                            val = winreg.QueryValue(k, "")
+                            if val and os.path.isfile(val):
+                                return val
                     except OSError:
                         pass
         except Exception:
             pass
     else:
-        for name in ("google-chrome-stable", "google-chrome", "chromium-browser"):
-            found = shutil.which(name)
-            if found:
-                return found
+        for n in ("google-chrome-stable", "google-chrome", "chromium-browser"):
+            f = shutil.which(n)
+            if f:
+                return f
     return None
 
 
-_CHROME_LAUNCHED = False  # prevent double-launch within same session
-
-
-def _start_daemon() -> bool:
-    """Try to start browser-harness daemon. Returns True if ping succeeds."""
-    env = {**os.environ, "BU_CDP_URL": f"http://127.0.0.1:{_PORT}"}
-
-    # Strategy 1: browser-harness CLI (if on PATH)
-    bh = shutil.which("browser-harness")
-    if bh:
-        subprocess.Popen(
-            [bh], env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        for _ in range(12):
-            time.sleep(0.5)
-            if ipc.ping(_DAEMON, timeout=0.5):
-                return True
-
-    # Strategy 2: python -m browser_harness.daemon
+def _chrome_listening() -> bool:
     try:
-        subprocess.Popen(
-            [sys.executable, "-m", "browser_harness.daemon"],
-            env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        for _ in range(12):
-            time.sleep(0.5)
-            if ipc.ping(_DAEMON, timeout=0.5):
-                return True
+        urllib.request.urlopen(f"http://127.0.0.1:{_PORT}/json/version", timeout=1).close()
+        return True
     except Exception:
-        pass
-
-    # Strategy 3: find script via pip
-    try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "show", "-f", "browser-harness"],
-            capture_output=True, text=True, timeout=10,
-        )
-        for line in result.stdout.splitlines():
-            if "Scripts" in line and any(
-                e in line.lower() for e in ("browser-harness", "browser_harness")
-            ):
-                script = line.split()[-1]
-                if os.path.isfile(script):
-                    subprocess.Popen(
-                        [sys.executable, script], env=env,
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    )
-                    for _ in range(12):
-                        time.sleep(0.5)
-                        if ipc.ping(_DAEMON, timeout=0.5):
-                            return True
-    except Exception:
-        pass
-
-    return False
+        return False
 
 
 def _ensure_ready():
-    global _READY, _CHROME_LAUNCHED
-    if _READY and ipc.ping(_DAEMON, timeout=0.5):
+    global _WS, _SID, _MSG_ID
+    if _WS and _WS.connected:
         return
 
-    from ..healing import get as get_heal
-
-    chrome = _find_chrome()
-    if not chrome:
-        raise RuntimeError(
-            "Chrome not found. HEAL: Install Chrome or set BH_CHROME_PATH."
+    # Find or launch Chrome
+    if not _chrome_listening():
+        chrome = _find_chrome()
+        if not chrome:
+            raise RuntimeError("Chrome not found. Install Chrome or set BH_CHROME_PATH.")
+        profile = os.path.join(os.path.expanduser("~"),
+                               ".therain2020-agent", "chrome-profile")
+        os.makedirs(profile, exist_ok=True)
+        subprocess.Popen(
+            f'start "" "{chrome}" --remote-debugging-port={_PORT} '
+            f'--user-data-dir="{profile}"',
+            shell=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-
-    profile = os.path.join(os.path.expanduser("~"),
-                           ".therain2020-agent", "chrome-profile")
-    os.makedirs(profile, exist_ok=True)
-
-    # Only launch Chrome once per session attempt
-    import urllib.request
-    if not _CHROME_LAUNCHED:
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{_PORT}/json/version", timeout=1).close()
-        except Exception:
-            cmd = (
-                f'start "" "{chrome}" --remote-debugging-port={_PORT} '
-                f'--user-data-dir="{profile}"'
+        for _ in range(20):
+            time.sleep(0.5)
+            if _chrome_listening():
+                break
+        else:
+            raise RuntimeError(
+                f'Chrome did not start. HEAL: bash__run(\'start "" "{chrome}" '
+                f'--remote-debugging-port={_PORT} '
+                f'--user-data-dir="{profile}"' + "')"
             )
-            if sys.platform != "win32":
-                cmd = (
-                    f'"{chrome}" --remote-debugging-port={_PORT} '
-                    f'--user-data-dir="{profile}" &'
-                )
-            subprocess.Popen(
-                cmd, shell=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            for _ in range(15):
-                time.sleep(1)
-                try:
-                    urllib.request.urlopen(
-                        f"http://127.0.0.1:{_PORT}/json/version", timeout=1
-                    ).close()
-                    _CHROME_LAUNCHED = True
-                    break
-                except Exception:
-                    pass
 
-    # Start daemon — MUST succeed before we mark ready
-    if _start_daemon():
-        _READY = True
-        get_heal().record(
-            "daemon not running",
-            f'bash__run("\\"{chrome}\\" --remote-debugging-port={_PORT} '
-            f'--user-data-dir=\\"{profile}\\"")',
-            "browser", success=True,
+    # Connect WebSocket directly to Chrome CDP
+    try:
+        resp = json.loads(
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{_PORT}/json/version", timeout=5,
+            ).read()
         )
-        return
+        ws_url = resp["webSocketDebuggerUrl"]
+    except Exception as e:
+        raise RuntimeError(f"Cannot connect to Chrome CDP: {e}")
 
-    raise RuntimeError(
-        "Cannot start browser daemon.\n\n"
-        "HEAL (run these bash commands in order):\n"
-        f'  bash__run("python -m pip install browser-harness")\n'
-        f'  bash__run("python -m browser_harness.daemon")\n'
-        "If browser-harness daemon still fails, check Chrome is running with:\n"
-        f'  bash__run("start \\"\\" \\"{chrome}\\" '
-        f'--remote-debugging-port={_PORT} --user-data-dir=\\"{profile}\\"")\n'
-        "Then retry."
-    )
+    _WS = websocket.create_connection(ws_url, timeout=10)
+    _MSG_ID = 0
+
+    # Find or create a page target
+    targets = _send("Target.getTargets")["targetInfos"]
+    pages = [
+        t for t in targets
+        if t["type"] == "page"
+        and not t.get("url", "").startswith(("chrome://", "devtools://"))
+    ]
+    if pages:
+        tid = pages[0]["targetId"]
+    else:
+        tid = _send("Target.createTarget", {"url": "about:blank"})["targetId"]
+
+    _SID = _send("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
+    _send("Page.enable")
+    _send("Runtime.enable")
 
 
-# -- navigation ----------------------------------------------------------
+# -- public: navigation --------------------------------------------------
 
 def new_tab(url: str = "about:blank") -> str:
     _ensure_ready()
-    tid = _cdp("Target.createTarget", url="about:blank")["targetId"]
-    sid = _cdp("Target.attachToTarget", targetId=tid, flatten=True)["sessionId"]
-    _cdp("Page.enable", session_id=sid)
+    tid = _send("Target.createTarget", {"url": "about:blank"})["targetId"]
+    global _SID
+    _SID = _send("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
+    _send("Page.enable")
     if url != "about:blank":
-        _cdp("Page.navigate", url=url, session_id=sid)
-    # Notify daemon of new session
-    try:
-        c, token = ipc.connect(_DAEMON)
-        ipc.request(c, token, {"meta": "set_session", "session_id": sid, "target_id": tid})
-        c.close()
-    except Exception:
-        pass
+        _send("Page.navigate", {"url": url})
     return tid
 
 
 def goto_url(url: str) -> dict:
     _ensure_ready()
-    return _cdp("Page.navigate", url=url)
+    return _send("Page.navigate", {"url": url})
 
 
 def list_tabs(include_chrome: bool = True) -> list[dict]:
     _ensure_ready()
-    targets = _cdp("Target.getTargets").get("targetInfos", [])
-    chrome_prefixes = ("chrome://", "chrome-extension://", "devtools://", "about:")
+    targets = _send("Target.getTargets").get("targetInfos", [])
+    prefixes = ("chrome://", "chrome-extension://", "devtools://", "about:")
     out = []
     for t in targets:
         if t.get("type") != "page":
             continue
         u = t.get("url", "")
-        if not include_chrome and u.startswith(chrome_prefixes):
+        if not include_chrome and u.startswith(prefixes):
             continue
-        out.append({
-            "targetId": t["targetId"],
-            "title": t.get("title", ""),
-            "url": u,
-        })
+        out.append({"targetId": t["targetId"], "title": t.get("title", ""), "url": u})
     return out
 
 
 def switch_tab(target: str | dict) -> str:
     _ensure_ready()
     tid = target if isinstance(target, str) else target["targetId"]
-    _cdp("Target.activateTarget", targetId=tid)
-    return _cdp("Target.attachToTarget", targetId=tid, flatten=True)["sessionId"]
+    _send("Target.activateTarget", {"targetId": tid})
+    global _SID
+    _SID = _send("Target.attachToTarget", {"targetId": tid, "flatten": True})["sessionId"]
+    return _SID
 
 
 def close_tab(target: str | dict | None = None):
@@ -254,26 +199,28 @@ def close_tab(target: str | dict | None = None):
             return
         target = tabs[0]["targetId"]
     tid = target if isinstance(target, str) else target["targetId"]
-    _cdp("Target.closeTarget", targetId=tid)
+    _send("Target.closeTarget", {"targetId": tid})
 
 
-# -- visual / inspection -------------------------------------------------
+# -- public: inspection --------------------------------------------------
 
 def page_info() -> dict:
     _ensure_ready()
-    expression = (
+    expr = (
         "JSON.stringify({url:location.href,title:document.title,"
         "w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,"
         "pw:document.documentElement.scrollWidth,"
         "ph:document.documentElement.scrollHeight})"
     )
-    result = _cdp("Runtime.evaluate", expression=expression, returnByValue=True)
-    return json.loads(result.get("result", {}).get("value", "{}"))
+    r = _send("Runtime.evaluate", {"expression": expr, "returnByValue": True})
+    return json.loads(r.get("result", {}).get("value", "{}"))
 
 
 def capture_screenshot(path: str | None = None, full: bool = False,
                        max_dim: int | None = 1800) -> str:
-    r = _cdp("Page.captureScreenshot", format="png", captureBeyondViewport=full)
+    _ensure_ready()
+    r = _send("Page.captureScreenshot",
+              {"format": "png", "captureBeyondViewport": full})
     data = base64.b64decode(r["data"])
     path = path or str(Path.home() / ".therain2020-agent" / "screenshot.png")
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -291,20 +238,27 @@ def capture_screenshot(path: str | None = None, full: bool = False,
     return path
 
 
-# -- input ---------------------------------------------------------------
+# -- public: input -------------------------------------------------------
 
 def click_at_xy(x: int, y: int, button: str = "left", clicks: int = 1):
-    _cdp("Input.dispatchMouseEvent", type="mousePressed",
-         x=x, y=y, button=button, clickCount=clicks)
-    _cdp("Input.dispatchMouseEvent", type="mouseReleased",
-         x=x, y=y, button=button, clickCount=clicks)
+    _ensure_ready()
+    for _ in range(clicks):
+        _send("Input.dispatchMouseEvent", {
+            "type": "mousePressed", "x": x, "y": y,
+            "button": button, "clickCount": 1,
+        })
+        _send("Input.dispatchMouseEvent", {
+            "type": "mouseReleased", "x": x, "y": y,
+            "button": button, "clickCount": 1,
+        })
 
 
 def type_text(text: str):
-    _cdp("Input.insertText", text=text)
+    _ensure_ready()
+    _send("Input.insertText", {"text": text})
 
 
-_PRESS_KEYS = {
+_KEYS = {
     "Enter": (13, "Enter", "\r"), "Tab": (9, "Tab", "\t"),
     "Backspace": (8, "Backspace", ""), "Escape": (27, "Escape", ""),
     "Delete": (46, "Delete", ""), " ": (32, "Space", " "),
@@ -314,34 +268,41 @@ _PRESS_KEYS = {
 
 
 def press_key(key: str, modifiers: int = 0):
-    vk, code, text = _PRESS_KEYS.get(key, (
+    _ensure_ready()
+    vk, code, text = _KEYS.get(key, (
         ord(key[0]) if len(key) == 1 else 0, key,
         key if len(key) == 1 else "",
     ))
-    base = {"key": key, "code": code, "modifiers": modifiers,
-            "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk}
-    _cdp("Input.dispatchKeyEvent", type="keyDown", **base,
-         **({"text": text} if text else {}))
+    base = {
+        "key": key, "code": code, "modifiers": modifiers,
+        "windowsVirtualKeyCode": vk, "nativeVirtualKeyCode": vk,
+    }
+    _send("Input.dispatchKeyEvent", {"type": "keyDown", **base,
+          **({"text": text} if text else {})})
     if text and len(text) == 1:
-        _cdp("Input.dispatchKeyEvent", type="char", text=text,
-             **{k: v for k, v in base.items() if k != "text"})
-    _cdp("Input.dispatchKeyEvent", type="keyUp", **base)
+        _send("Input.dispatchKeyEvent", {"type": "char", "text": text,
+              **{k: v for k, v in base.items() if k != "text"}})
+    _send("Input.dispatchKeyEvent", {"type": "keyUp", **base})
 
 
 def scroll(x: int, y: int, dy: int = -300, dx: int = 0):
-    _cdp("Input.dispatchMouseEvent", type="mouseWheel",
-         x=x, y=y, deltaX=dx, deltaY=dy)
+    _ensure_ready()
+    _send("Input.dispatchMouseEvent", {
+        "type": "mouseWheel", "x": x, "y": y,
+        "deltaX": dx, "deltaY": dy,
+    })
 
 
-# -- JS execution --------------------------------------------------------
+# -- public: JS ----------------------------------------------------------
 
 def js(expression: str) -> str:
-    result = _cdp("Runtime.evaluate", expression=expression, returnByValue=True,
-                  awaitPromise=True)
-    return str(result.get("result", {}).get("value", ""))
+    _ensure_ready()
+    r = _send("Runtime.evaluate",
+              {"expression": expression, "returnByValue": True, "awaitPromise": True})
+    return str(r.get("result", {}).get("value", ""))
 
 
-# -- waiting -------------------------------------------------------------
+# -- public: wait --------------------------------------------------------
 
 def wait(seconds: float = 1.0):
     time.sleep(seconds)
@@ -351,9 +312,9 @@ def wait_for_load(timeout: float = 15.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            ready = _cdp("Runtime.evaluate", expression="document.readyState",
-                         returnByValue=True)
-            if ready.get("result", {}).get("value") == "complete":
+            r = _send("Runtime.evaluate",
+                      {"expression": "document.readyState", "returnByValue": True})
+            if r.get("result", {}).get("value") == "complete":
                 return True
         except Exception:
             pass
@@ -363,21 +324,21 @@ def wait_for_load(timeout: float = 15.0) -> bool:
 
 def wait_for_element(selector: str, timeout: float = 10.0,
                      visible: bool = False) -> bool:
-    if visible:
-        check = (
-            f"(()=>{{const e=document.querySelector({json.dumps(selector)});"
-            f"if(!e)return false;"
-            f"if(typeof e.checkVisibility==='function')"
-            f"return e.checkVisibility({{checkOpacity:true,checkVisibilityCSS:true}});"
-            f"const s=getComputedStyle(e);"
-            f"return s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0'}})()"
-        )
-    else:
-        check = f"!!document.querySelector({json.dumps(selector)})"
+    check = (
+        f"!!document.querySelector({json.dumps(selector)})"
+        if not visible else
+        f"(()=>{{const e=document.querySelector({json.dumps(selector)});"
+        f"if(!e)return false;"
+        f"if(typeof e.checkVisibility==='function')"
+        f"return e.checkVisibility({{checkOpacity:true,checkVisibilityCSS:true}});"
+        f"const s=getComputedStyle(e);"
+        f"return s.display!=='none'&&s.visibility!=='hidden'}})()"
+    )
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            r = _cdp("Runtime.evaluate", expression=check, returnByValue=True)
+            r = _send("Runtime.evaluate",
+                      {"expression": check, "returnByValue": True})
             if r.get("result", {}).get("value"):
                 return True
         except Exception:
