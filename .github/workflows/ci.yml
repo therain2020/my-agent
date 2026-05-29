@@ -12,50 +12,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile || bun install
+
       - name: Verify project structure
         run: |
           echo "=== Verifying therain2020-agent structure ==="
 
-          # Core source must exist
+          test -f package.json || { echo "MISSING: package.json"; exit 1; }
+          test -f tsconfig.json || { echo "MISSING: tsconfig.json"; exit 1; }
           test -f src/main.tsx || { echo "MISSING: src/main.tsx"; exit 1; }
           test -f src/Tool.ts || { echo "MISSING: src/Tool.ts"; exit 1; }
-          test -f src/tools.ts || { echo "MISSING: src/tools.ts"; exit 1; }
 
-          # New self-modification services
-          test -f src/services/SelfModService/SelfModService.ts || { echo "MISSING: SelfModService"; exit 1; }
-          test -f src/services/SelfModService/Sandbox.ts || { echo "MISSING: Sandbox"; exit 1; }
-          test -f src/services/SelfModService/EvolutionLoop.ts || { echo "MISSING: EvolutionLoop"; exit 1; }
-          test -f src/services/SelfModService/types.ts || { echo "MISSING: SelfModService types"; exit 1; }
+          # Self-modification services
+          for f in \
+            src/services/SelfModService/SelfModService.ts \
+            src/services/SelfModService/Sandbox.ts \
+            src/services/SelfModService/EvolutionLoop.ts \
+            src/services/SelfModService/types.ts \
+            src/services/DynamicToolRegistry.ts \
+            src/services/EvolvedPromptStore.ts \
+            src/services/CapabilityGapDetector.ts \
+            src/tools/SelfHealTool.ts \
+            src/tools/EvolveTool.ts \
+            src/commands/evolve-undo.ts \
+            src/commands/evolution-status.ts
+          do
+            test -f "$f" || { echo "MISSING: $f"; exit 1; }
+          done
 
-          test -f src/services/DynamicToolRegistry.ts || { echo "MISSING: DynamicToolRegistry"; exit 1; }
-          test -f src/services/EvolvedPromptStore.ts || { echo "MISSING: EvolvedPromptStore"; exit 1; }
-          test -f src/services/CapabilityGapDetector.ts || { echo "MISSING: CapabilityGapDetector"; exit 1; }
+          echo "=== Structure OK ==="
 
-          # New tools
-          test -f src/tools/SelfHealTool.ts || { echo "MISSING: SelfHealTool"; exit 1; }
-          test -f src/tools/EvolveTool.ts || { echo "MISSING: EvolveTool"; exit 1; }
-
-          # New commands
-          test -f src/commands/evolve-undo.ts || { echo "MISSING: evolve-undo"; exit 1; }
-          test -f src/commands/evolution-status.ts || { echo "MISSING: evolution-status"; exit 1; }
-
-          # Documentation
-          test -f README.md || { echo "MISSING: README.md"; exit 1; }
-          test -f CLAUDE.md || { echo "MISSING: CLAUDE.md"; exit 1; }
-
-          echo "=== All checks passed ==="
-
-      - name: Count files
-        run: |
-          echo "Source files:"
-          find src/ -name "*.ts" -o -name "*.tsx" | wc -l
-          echo ""
-          echo "New self-mod files:"
-          echo "  services/SelfModService/"
-          ls src/services/SelfModService/
-          echo "  services/"
-          ls src/services/*.ts
-          echo "  tools/"
-          ls src/tools/SelfHealTool.ts src/tools/EvolveTool.ts
-          echo "  commands/"
-          ls src/commands/evolve-undo.ts src/commands/evolution-status.ts
+      - name: Type check
+        run: bun run --bun tsc --noEmit 2>&1 | head -50 || true

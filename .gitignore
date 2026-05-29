@@ -3,20 +3,27 @@ node_modules/
 
 # Build output
 dist/
+*.js.map
+*.d.ts.map
 
 # Bun
 bun.lockb
 
+# TypeScript
+*.tsbuildinfo
+
 # Claude Code
 .claude/worktrees/
 
-# Evolution data (user-specific)
+# Evolution data (user-specific, generated at runtime)
 capability-gaps.json
 evolution-journal.jsonl
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
 
 # Env
 .env
@@ -28,3 +35,4 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
