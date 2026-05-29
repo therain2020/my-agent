@@ -1,4 +1,7 @@
-import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
+const { BROWSER_TOOLS } = (() => {
+  try { return require('@ant/claude-for-chrome-mcp') }
+  catch { return require('../../utils/claudeInChrome/chromeMcpStub.js') }
+})() as { BROWSER_TOOLS: string[] }
 import { BASE_CHROME_PROMPT } from '../../utils/claudeInChrome/prompt.js'
 import { shouldAutoEnableClaudeInChrome } from '../../utils/claudeInChrome/setup.js'
 import { registerBundledSkill } from '../bundledSkills.js'

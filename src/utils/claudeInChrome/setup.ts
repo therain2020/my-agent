@@ -1,4 +1,7 @@
-import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
+const { BROWSER_TOOLS } = (() => {
+  try { return require('@ant/claude-for-chrome-mcp') }
+  catch { return require('./chromeMcpStub.js') }
+})() as { BROWSER_TOOLS: string[] }
 import { chmod, mkdir, readFile, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join } from 'path'
