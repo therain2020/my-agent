@@ -61,7 +61,6 @@ import {
   startHookSpan,
   endHookSpan,
   isBetaTracingEnabled,
-} from './telemetry/sessionTracing.js'
 import {
   hookJSONOutputSchema,
   promptRequestSchema,

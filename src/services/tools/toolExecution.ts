@@ -97,7 +97,6 @@ import {
   startToolBlockedOnUserSpan,
   startToolExecutionSpan,
   startToolSpan,
-} from '../../utils/telemetry/sessionTracing.js'
 import {
   formatError,
   formatZodValidationError,
