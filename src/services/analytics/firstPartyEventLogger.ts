@@ -10,3 +10,5 @@ export function shouldSampleEvent(_eventName: string): null { return null }
 
 export async function shutdown1PEventLogging(): Promise<void> {}
 export function logEventTo1P(): void {}
+export function initialize1PEventLogging(): void {}
+export function reinitialize1PEventLoggingIfConfigChanged(): void {}

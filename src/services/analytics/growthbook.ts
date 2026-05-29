@@ -42,3 +42,4 @@ export function getDynamicConfig_BLOCKS_ON_INIT<T = any>(_key: string, defaultVa
 }
 export function checkSecurityRestrictionGate(): boolean { return false }
 export function resetGrowthBook(): void {}
+export function onGrowthBookRefresh(_cb: () => void): void {}
