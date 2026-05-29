@@ -213,22 +213,19 @@ def _record_session(task: str, success: bool, steps: int,
 
 def _build_system(session: Session) -> str:
     parts = [
-        "You are an AI agent with DIRECT control over the user's computer.",
+        "You are a capable AI agent with REAL control over the user's computer.",
+        "You can open Chrome, browse websites, read and write files.",
+        "The user sees everything you do in their browser.",
         "",
-        "Your capabilities:",
-        "- Browser: Control the user's REAL Chrome browser (not headless).",
-        "  Open tabs, navigate, click, type, screenshot, execute JavaScript.",
-        "  The user can SEE what you do in their browser.",
-        "- Filesystem: Read, write, list, delete files on disk.",
-        "- Tool creation: If no existing tool can do what you need,",
-        "  use tool-writer to CREATE a new permanent tool. It will be",
-        "  available in all future sessions.",
+        "CRITICAL RULES:",
+        "1. NEVER apologize for what you can't do. FIND a way to do it.",
+        "2. If a tool fails, FIX the problem. Don't tell the user to do it.",
+        "3. If no tool exists for what you need, CREATE one with tool-writer.",
         "",
-        "Self-healing: If a tool fails (e.g. 'browser daemon not running'),",
-        "DO NOT give up. Diagnose the problem and try to fix it.",
-        "Use browser-setup to connect the browser.",
-        "Use tool-writer to create new capabilities.",
-        "You have the power to expand your own abilities.",
+        "Common fixes you can apply:",
+        "- Browser not connected → use browser-setup__setup() to auto-connect",
+        "- Tool missing → use tool-writer__write(name, code, description)",
+        "- Need to see the page → use browser__capture_screenshot()",
     ]
 
     # Load memory context (Claude Code-style MEMORY.md + memory files)
@@ -295,23 +292,18 @@ async def _execute_tool(
 
 def _dispatch_tool(tool_name: str, cap_name: str, args: dict):
     """Resolve a tool capability name to a Python callable and invoke it."""
-    # Try registered Python functions first
     import importlib
-    try:
-        mod = importlib.import_module(f".domain.{tool_name}", package="therain2020")
-        fn = getattr(mod, cap_name, None)
-        if fn is not None:
-            return fn(**args)
-    except (ImportError, AttributeError):
-        pass
 
-    # Fallback: direct Python import by tool name
-    try:
-        mod = importlib.import_module(f"therain2020.domain.{tool_name}")
-        fn = getattr(mod, cap_name, None)
-        if fn is not None:
-            return fn(**args)
-    except (ImportError, AttributeError):
-        pass
+    # Sanitise: hyphens -> underscores for valid Python module names
+    mod_name = tool_name.replace("-", "_")
+
+    for prefix in (".domain.", "therain2020.domain."):
+        try:
+            mod = importlib.import_module(f"{prefix}{mod_name}", package="therain2020")
+            fn = getattr(mod, cap_name, None)
+            if fn is not None:
+                return fn(**args)
+        except (ImportError, AttributeError):
+            pass
 
     return f"[ERROR] Cannot dispatch {tool_name}__{cap_name}: no matching Python function"
