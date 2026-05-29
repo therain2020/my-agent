@@ -41,7 +41,9 @@ def _send(method: str, params: dict | None = None) -> dict:
     data = json.loads(raw)
     if "error" in data:
         raise RuntimeError(data["error"].get("message", str(data["error"])))
-    return data.get("result", {})
+    if "result" not in data:
+        raise RuntimeError(f"CDP: no result for {method}")
+    return data["result"]
 
 
 # -- internal: connection ------------------------------------------------

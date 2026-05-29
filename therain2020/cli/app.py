@@ -115,6 +115,8 @@ class Repl:
         loop = asyncio.get_running_loop()
         try:
             return await loop.run_in_executor(None, input)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            return None  # Ctrl+C
         except RuntimeError:
             return await loop.run_in_executor(None, sys.stdin.readline)
 
@@ -176,8 +178,13 @@ class Repl:
 
                 elif event.type == EventType.TOOL_RESULT:
                     mark = f"{GREEN}●{RESET}" if event.ok else f"{RED}●{RESET}"
-                    summary = (event.content or "").split("\n")[0][:150]
-                    print(f"  {mark} {summary}", flush=True)
+                    text = event.content or ""
+                    if not text:
+                        pass  # no output
+                    elif len(text) < 80:
+                        print(f"  {mark} {text}", flush=True)
+                    else:
+                        print(f"  {mark} ({len(text)} chars)", flush=True)
 
                 elif event.type == EventType.ERROR:
                     print(f"\n  {RED}Error: {event.content[:300]}{RESET}", flush=True)
