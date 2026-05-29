@@ -4,7 +4,8 @@ import { useInterval } from 'usehooks-ts';
 import { getIsRemoteMode, getIsScrollDraining } from '../../bootstrap/state.js';
 import { useNotifications } from '../../context/notifications.js';
 import { Text } from '../../ink.js';
-import { getInitializationStatus, getLspServerManager } from '../../services/lsp/manager.js';
+const getInitializationStatus = () => 'ready' as const // LSP removed
+const getLspServerManager = () => null // LSP removed
 import { useSetAppState } from '../../state/AppState.js';
 import { logForDebugging } from '../../utils/debug.js';
 import { isEnvTruthy } from '../../utils/envUtils.js';

@@ -67,7 +67,6 @@ export async function setup(
   worktreePRNumber?: number,
   messagingSocketPath?: string,
 ): Promise<void> {
-  process.stderr.write("[DIAG] setup() entered\n")
   logForDiagnosticsNoPII('info', 'setup_started')
 
   // Check for Node.js version < 18
@@ -388,11 +387,9 @@ export async function setup(
   // --bare / SIMPLE: skip — release notes are interactive-UI display data,
   // and getRecentActivity() reads up to 10 session JSONL files.
   if (!isBareMode()) {
-    process.stderr.write("[DIAG] setup() checking release notes...\n")
     const { hasReleaseNotes } = await checkForReleaseNotes(
       getGlobalConfig().lastReleaseNotesSeen,
     )
-    process.stderr.write("[DIAG] setup() release notes check done\n")
     if (hasReleaseNotes) {
       await getRecentActivity()
     }
@@ -480,5 +477,4 @@ export async function setup(
     // They're needed for cost restoration when resuming sessions.
     // The values will be overwritten when the next session exits.
   }
-  process.stderr.write("[DIAG] setup() completed\n")
 }

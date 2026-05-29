@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { Box, Text } from '../../ink.js';
 import { getGlobalConfig, saveGlobalConfig } from '../../utils/config.js';
 import { getInitialSettings } from '../../utils/settings/settings.js';
-import { isVoiceModeEnabled } from '../../voice/voiceModeEnabled.js';
+const isVoiceModeEnabled = () => false // voice removed
 import { AnimatedAsterisk } from './AnimatedAsterisk.js';
 import { shouldShowOpus1mMergeNotice } from './Opus1mMergeNotice.js';
 const MAX_SHOW_COUNT = 3;

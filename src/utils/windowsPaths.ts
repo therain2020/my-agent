@@ -11,7 +11,14 @@ import { getPlatform } from './platform.js'
  * Check if a file or directory exists — uses native fs call, no bash dependency.
  */
 function checkPathExists(filePath: string): boolean {
-  return existsSync(filePath)
+  try {
+    const { statSync } = require('fs')
+    statSync(filePath)
+    return true
+  } catch (e) {
+    process.stderr.write(`[DEBUG] checkPathExists failed for "${filePath}": ${(e as Error).message}\n`)
+    return false
+  }
 }
 
 /**

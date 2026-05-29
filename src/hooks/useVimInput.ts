@@ -3,26 +3,24 @@ import type { Key } from '../ink.js'
 import type { VimInputState, VimMode } from '../types/textInputTypes.js'
 import { Cursor } from '../utils/Cursor.js'
 import { lastGrapheme } from '../utils/intl.js'
-import {
-  executeIndent,
-  executeJoin,
-  executeOpenLine,
-  executeOperatorFind,
-  executeOperatorMotion,
-  executeOperatorTextObj,
-  executeReplace,
-  executeToggleCase,
-  executeX,
-  type OperatorContext,
-} from '../vim/operators.js'
-import { type TransitionContext, transition } from '../vim/transitions.js'
-import {
-  createInitialPersistentState,
-  createInitialVimState,
-  type PersistentState,
-  type RecordedChange,
-  type VimState,
-} from '../vim/types.js'
+// vim removed — stubs
+const executeIndent = () => ({}) as any
+const executeJoin = () => ({}) as any
+const executeOpenLine = () => ({}) as any
+const executeOperatorFind = () => ({}) as any
+const executeOperatorMotion = () => ({}) as any
+const executeOperatorTextObj = () => ({}) as any
+const executeReplace = () => ({}) as any
+const executeToggleCase = () => ({}) as any
+const executeX = () => ({}) as any
+type OperatorContext = any
+type TransitionContext = any
+const transition = () => ({}) as any
+type PersistentState = any
+type RecordedChange = any
+type VimState = any
+const createInitialPersistentState = () => ({}) as any
+const createInitialVimState = () => ({}) as any
 import { type UseTextInputProps, useTextInput } from './useTextInput.js'
 
 type UseVimInputProps = Omit<UseTextInputProps, 'inputFilter'> & {
