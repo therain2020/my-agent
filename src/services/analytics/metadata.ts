@@ -124,14 +124,7 @@ export function isAnalyticsToolDetailsLoggingEnabled(
  * Feature-gated so the set is empty when the feature is off: the name
  * reservation (main.tsx, config.ts addMcpServer) is itself feature-gated, so
  */
-/* eslint-disable @typescript-eslint/no-require-imports */
-const BUILTIN_MCP_SERVER_NAMES: ReadonlySet<string> = new Set(
-    ? [
-        (
-      ]
-    : [],
-)
-/* eslint-enable @typescript-eslint/no-require-imports */
+const BUILTIN_MCP_SERVER_NAMES: ReadonlySet<string> = new Set()
 
 /**
  * Spreadable helper for logEvent payloads — returns {mcpServerName, mcpToolName}

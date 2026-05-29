@@ -182,9 +182,6 @@ import {
   checkForAsyncHookResponses,
   removeDeliveredAsyncHooks,
 } from './hooks/AsyncHookRegistry.js'
-import {
-  checkForLSPDiagnostics,
-  clearAllLSPDiagnostics,
 import { logForDebugging } from './debug.js'
 import {
   extractTextContent,

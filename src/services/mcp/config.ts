@@ -632,14 +632,7 @@ export async function addMcpConfig(
     )
   }
 
-  // Block reserved server name "claude-in-chrome"
-    throw new Error(`Cannot add MCP server "${name}": this name is reserved.`)
-  }
-
-    )
-      throw new Error(`Cannot add MCP server "${name}": this name is reserved.`)
-    }
-  }
+  // Reserved MCP names removed — claudeInChrome + ComputerUse removed
 
   // Block adding servers when enterprise MCP config exists (it has exclusive control)
   if (doesEnterpriseMcpConfigExist()) {
@@ -1503,8 +1496,6 @@ export function areMcpConfigsAllowedWithEnterpriseMcpConfig(
  * enabledMcpServers. Shows up in /mcp as disabled until the user enables it.
  */
 /* eslint-disable @typescript-eslint/no-require-imports */
-  ? (
-  : null
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 function isDefaultDisabledBuiltin(name: string): boolean {
