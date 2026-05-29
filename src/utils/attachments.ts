@@ -172,8 +172,7 @@ import {
   isMcpInstructionsDeltaEnabled,
   type ClientSideInstruction,
 } from './mcpInstructionsDelta.js'
-import { CLAUDE_IN_CHROME_MCP_SERVER_NAME } from './claudeInChrome/common.js'
-import { CHROME_TOOL_SEARCH_INSTRUCTIONS } from './claudeInChrome/prompt.js'
+// ClaudeInChrome removed
 import type { MCPServerConnection } from '../services/mcp/types.js'
 import type {
   HookEvent,
@@ -183,10 +182,8 @@ import {
   checkForAsyncHookResponses,
   removeDeliveredAsyncHooks,
 } from './hooks/AsyncHookRegistry.js'
-import {
-  checkForLSPDiagnostics,
-  clearAllLSPDiagnostics,
-} from '../services/lsp/LSPDiagnosticRegistry.js'
+const checkForLSPDiagnostics = () => [] // LSP removed
+const clearAllLSPDiagnostics = () => {} // LSP removed
 import { logForDebugging } from './debug.js'
 import {
   extractTextContent,
@@ -249,7 +246,7 @@ import {
 import { isInProcessTeammate } from './teammateContext.js'
 import { removeTeammateFromTeamFile } from './swarm/teamHelpers.js'
 import { unassignTeammateTasks } from './tasks.js'
-import { getCompanionIntroAttachment } from '../buddy/prompt.js'
+const getCompanionIntroAttachment = (..._args: unknown[]): null => null // buddy removed
 
 export const TODO_REMINDER_CONFIG = {
   TURNS_SINCE_WRITE: 10,
@@ -1573,10 +1570,7 @@ export function getMcpInstructionsDeltaAttachment(
     modelSupportsToolReference(model) &&
     isToolSearchToolAvailable(tools)
   ) {
-    clientSide.push({
-      serverName: CLAUDE_IN_CHROME_MCP_SERVER_NAME,
-      block: CHROME_TOOL_SEARCH_INSTRUCTIONS,
-    })
+    // CIC tool search instructions removed
   }
 
   const delta = getMcpInstructionsDelta(mcpClients, messages ?? [], clientSide)
