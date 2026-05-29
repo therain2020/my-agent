@@ -3,7 +3,6 @@ import { useAppState } from '../state/AppState.js'
 import {
   hasVoiceAuth,
   isVoiceGrowthBookEnabled,
-} from '../voice/voiceModeEnabled.js'
 
 /**
  * Combines user intent (settings.voiceEnabled) with auth + GB kill-switch.
@@ -16,7 +15,6 @@ import {
  * authVersion bumps on /login only. Background token refresh leaves it alone
  * (user is still authed), so the auth memo stays correct without re-eval.
  */
-export function useVoiceEnabled(): boolean {
   const userIntent = useAppState(s => s.settings.voiceEnabled === true)
   const authVersion = useAppState(s => s.authVersion)
   // eslint-disable-next-line react-hooks/exhaustive-deps
