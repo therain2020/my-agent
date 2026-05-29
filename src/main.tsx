@@ -1962,6 +1962,7 @@ async function run(): Promise<CommanderCommand> {
     // worktreeEnabled gated the early kick). Both memoized by cwd.
     const [commands, agentDefinitionsResult] = await Promise.all([commandsPromise ?? getCommands(currentCwd), agentDefsPromise ?? getAgentDefinitionsWithOverrides(currentCwd)]);
     logForDebugging(`[STARTUP] Commands and agents loaded in ${Date.now() - commandsStart}ms`);
+    process.stderr.write("[DIAG] commands loaded\n")
     profileCheckpoint('action_commands_loaded');
 
     // Parse CLI agents if provided via --agents flag
@@ -2333,6 +2334,7 @@ async function run(): Promise<CommanderCommand> {
         regularMcpConfigs[name] = typedConfig as ScopedMcpServerConfig;
       }
     }
+    process.stderr.write("[DIAG] MCP configs loaded\n")
     profileCheckpoint('action_mcp_configs_loaded');
 
     // Prefetch MCP resources after trust dialog (this is where execution happens).
@@ -2490,7 +2492,9 @@ async function run(): Promise<CommanderCommand> {
       // skip — no-op
     } else if (isNonInteractiveSession) {
       // In headless mode, await to ensure plugin sync completes before CLI exits
+      process.stderr.write("[DIAG] initializing plugins...\n")
       await initializeVersionedPlugins();
+      process.stderr.write("[DIAG] plugins initialized\n")
       profileCheckpoint('action_after_plugins_init');
       void cleanupOrphanedPluginVersionsInBackground().then(() => getGlobExclusionsForPluginCache());
     } else {
