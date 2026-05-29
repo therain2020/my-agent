@@ -103,7 +103,7 @@ def _ensure_ready():
         os.makedirs(profile, exist_ok=True)
         subprocess.Popen(
             f'start "" "{chrome}" --remote-debugging-port={_PORT} '
-            f'--user-data-dir="{profile}"',
+            f'--remote-allow-origins=* --user-data-dir="{profile}"',
             shell=True,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
@@ -114,7 +114,7 @@ def _ensure_ready():
         else:
             raise RuntimeError(
                 f'Chrome did not start. HEAL: bash__run(\'start "" "{chrome}" '
-                f'--remote-debugging-port={_PORT} '
+                f'--remote-debugging-port={_PORT} --remote-allow-origins=* '
                 f'--user-data-dir="{profile}"' + "')"
             )
 
@@ -159,7 +159,8 @@ def new_tab(url: str = "about:blank") -> str:
     _send("Page.enable")
     if url != "about:blank":
         _send("Page.navigate", {"url": url})
-    return tid
+    info = page_info()
+    return f"Tab opened: {info.get('title', '')} — {info.get('url', url)}"
 
 
 def goto_url(url: str) -> dict:
