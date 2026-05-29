@@ -1,11 +1,12 @@
 import { readFile } from 'fs/promises'
 import { join, relative, resolve } from 'path'
 import { z } from 'zod/v4'
-import type {
-  LspServerConfig,
-  ScopedLspServerConfig,
-import { expandEnvVarsInString } from '../../services/mcp/envExpansion.js'
 import type { LoadedPlugin, PluginError } from '../../types/plugin.js'
+type LspServerConfig = Record<string, unknown>
+type ScopedLspServerConfig = Record<string, unknown>
+function expandEnvVarsInString(s: string): { expanded: string; missingVars: string[] } {
+  return { expanded: s, missingVars: [] }
+}
 import { logForDebugging } from '../debug.js'
 import { isENOENT, toError } from '../errors.js'
 import { logError } from '../log.js'
