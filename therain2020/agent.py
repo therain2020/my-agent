@@ -169,8 +169,10 @@ async def _step(session: Session, tools_used: list[str]) -> StepResult:
                 session.conversation[:1]
                 + session.conversation[-(MAX_CONVERSATION_MESSAGES - 1):]
             )
-        return StepResult(finish_reason="tool_calls", tool_calls=response.tool_calls,
-                          reasoning=response.reasoning)
+        return StepResult(finish_reason="tool_calls",
+                          content=response.content,
+                          reasoning=response.reasoning,
+                          tool_calls=response.tool_calls)
     else:
         session.conversation.append({
             "role": "assistant",
