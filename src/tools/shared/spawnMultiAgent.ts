@@ -5,7 +5,6 @@
 
 import React from 'react'
 import {
-  getChromeFlagOverride,
   getFlagSettingsPath,
   getInlinePlugins,
   getMainLoopModelOverride,
@@ -249,10 +248,7 @@ function buildInheritedCliFlags(options?: {
   }
 
   // Propagate --chrome / --no-chrome if explicitly set on the CLI
-  const chromeFlagOverride = getChromeFlagOverride()
-  if (chromeFlagOverride === true) {
     flags.push('--chrome')
-  } else if (chromeFlagOverride === false) {
     flags.push('--no-chrome')
   }
 
