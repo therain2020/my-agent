@@ -110,11 +110,26 @@ def _ensure_ready():
             except Exception:
                 pass
 
-    # Record the fix
+    # Start browser-harness daemon
+    subprocess.Popen(
+        [sys.executable, "-m", "browser_harness.daemon"],
+        env={**os.environ, "BU_CDP_URL": f"http://127.0.0.1:{_PORT}"},
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    # Wait for daemon to be ready
+    for _ in range(10):
+        time.sleep(0.5)
+        if ipc.ping(_DAEMON, timeout=0.5):
+            break
+
+    # Record the fix (Chrome + daemon recipe)
+    full_cmd = (
+        f'bash__run("{chrome} --remote-debugging-port={_PORT} '
+        f'--user-data-dir={profile}") '
+        f'&& bash__run("python -m browser_harness.daemon")'
+    )
     get_heal().record(
-        "daemon not running",
-        f'bash__run(\'{cmd}\')' if sys.platform == "win32" else cmd,
-        "browser", success=True,
+        "daemon not running", full_cmd, "browser", success=True,
     )
     _READY = True
 
