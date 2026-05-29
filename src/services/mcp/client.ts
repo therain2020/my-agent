@@ -228,14 +228,6 @@ function getMcpToolTimeoutMs(): number {
   )
 }
 
-// claudeInChrome removed — CDP-based browser control via CdpTransport + self-evolution
-
-// Lazy: wrapper.tsx → hostAdapter.ts → executor.ts pulls both native modules
-// GrowthBook tengu_malort_pedway (see gates.ts).
-  : undefined
-  ? (
-  : undefined
-
 import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
@@ -890,20 +882,6 @@ export const connectToServer = memoize(
           transportOptions,
         )
         logMCPDebug(name, `claude.ai proxy transport created successfully`)
-      } else if (
-        (serverRef.type === 'stdio' || !serverRef.type) &&
-      ) {
-        // Run the Computer Use MCP server in-process — same rationale as
-        // Chrome above. The package's CallTool handler is a stub; real
-        // dispatch goes through wrapper.tsx's .call() override.
-        )
-        const { createLinkedTransportPair } = await import(
-          './InProcessTransport.js'
-        )
-        const [clientTransport, serverTransport] = createLinkedTransportPair()
-        await inProcessServer.connect(serverTransport)
-        transport = clientTransport
-        logMCPDebug(name, `In-process Computer Use MCP server started`)
       } else if (serverRef.type === 'stdio' || !serverRef.type) {
         const finalCommand =
           process.env.CLAUDE_CODE_SHELL_PREFIX || serverRef.command
@@ -1938,8 +1916,6 @@ export const fetchToolsForClient = memoizeWithLRU(
               return `${client.name} - ${displayName} (MCP)`
             },
             // claudeInChrome rendering removed — CDP-based browser control via CdpTransport
-            (client.config.type === 'stdio' || !client.config.type) &&
-              : {}),
           }
         })
         .filter(isIncludedMcpTool)
