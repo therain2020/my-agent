@@ -139,10 +139,12 @@ def new_tab(url: str = "about:blank") -> str:
 
 
 def goto_url(url: str) -> dict:
+    _ensure_ready()
     return _cdp("Page.navigate", url=url)
 
 
 def list_tabs(include_chrome: bool = True) -> list[dict]:
+    _ensure_ready()
     targets = _cdp("Target.getTargets").get("targetInfos", [])
     chrome_prefixes = ("chrome://", "chrome-extension://", "devtools://", "about:")
     out = []
@@ -161,12 +163,14 @@ def list_tabs(include_chrome: bool = True) -> list[dict]:
 
 
 def switch_tab(target: str | dict) -> str:
+    _ensure_ready()
     tid = target if isinstance(target, str) else target["targetId"]
     _cdp("Target.activateTarget", targetId=tid)
     return _cdp("Target.attachToTarget", targetId=tid, flatten=True)["sessionId"]
 
 
 def close_tab(target: str | dict | None = None):
+    _ensure_ready()
     if target is None:
         tabs = list_tabs(include_chrome=False)
         if not tabs:
@@ -179,6 +183,7 @@ def close_tab(target: str | dict | None = None):
 # -- visual / inspection -------------------------------------------------
 
 def page_info() -> dict:
+    _ensure_ready()
     expression = (
         "JSON.stringify({url:location.href,title:document.title,"
         "w:innerWidth,h:innerHeight,sx:scrollX,sy:scrollY,"
