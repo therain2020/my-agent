@@ -1865,6 +1865,7 @@ async function run(): Promise<CommanderCommand> {
     agentDefsPromise?.catch(() => {});
     process.stderr.write("[DIAG] before setup()\n")
     await setupPromise;
+    process.stderr.write("[DIAG] after setupPromise resolved\n")
     logForDebugging(`[STARTUP] setup() completed in ${Date.now() - setupStart}ms`);
     profileCheckpoint('action_after_setup');
 
