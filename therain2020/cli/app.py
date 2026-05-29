@@ -98,8 +98,11 @@ class Repl:
                         self._handle_slash(line)
                     elif line:
                         await self._execute(line)
-                except (EOFError, KeyboardInterrupt):
+                except EOFError:
                     break
+                except KeyboardInterrupt:
+                    print()
+                    continue
                 except Exception as e:
                     print(f"\n  {RED}Error: {e}{RESET}\n")
         finally:
@@ -172,8 +175,8 @@ class Repl:
                     print(f"\n  {YELLOW}●{RESET} {event.tool_name}({args_str})", flush=True)
 
                 elif event.type == EventType.TOOL_RESULT:
-                    mark = f"{GREEN}✓{RESET}" if event.ok else f"{RED}✗{RESET}"
-                    summary = (event.content or "").replace("\n", " ")[:150]
+                    mark = f"{GREEN}●{RESET}" if event.ok else f"{RED}●{RESET}"
+                    summary = (event.content or "").split("\n")[0][:150]
                     print(f"  {mark} {summary}", flush=True)
 
                 elif event.type == EventType.ERROR:
