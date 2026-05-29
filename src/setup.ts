@@ -1,5 +1,8 @@
 /* eslint-disable custom-rules/no-process-exit */
 
+// @ts-expect-error MACRO is normally defined at Bun build time
+var MACRO = globalThis.MACRO || { VERSION: '0.1.0' }
+
 import { feature } from 'bun:bundle'
 import chalk from 'chalk'
 import {

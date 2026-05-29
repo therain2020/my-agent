@@ -8,7 +8,7 @@
     "therain2020": "./dist/main.js"
   },
   "scripts": {
-    "dev": "bun --preload=src/preload.ts run src/main.tsx",
+    "dev": "bun run src/main.tsx",
     "build": "bun build src/main.tsx --target=bun --outdir=dist --minify --sourcemap=external --define 'MACRO:{\"VERSION\":\"0.1.0\"}'",
     "start": "bun run dist/main.js",
     "typecheck": "bun run --bun tsc --noEmit",
