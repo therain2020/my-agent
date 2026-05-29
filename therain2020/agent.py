@@ -29,6 +29,7 @@ from .session import Session
 class StepResult:
     finish_reason: str = "stop"
     content: str = ""
+    reasoning: str = ""
     tool_calls: list[dict] | None = None
 
 
@@ -166,13 +167,15 @@ async def _step(session: Session, tools_used: list[str]) -> StepResult:
                 session.conversation[:1]
                 + session.conversation[-(MAX_CONVERSATION_MESSAGES - 1):]
             )
-        return StepResult(finish_reason="tool_calls", tool_calls=response.tool_calls)
+        return StepResult(finish_reason="tool_calls", tool_calls=response.tool_calls,
+                          reasoning=response.reasoning)
     else:
         session.conversation.append({
             "role": "assistant",
             "content": response.content,
         })
-        return StepResult(finish_reason="stop", content=response.content)
+        return StepResult(finish_reason="stop", content=response.content,
+                          reasoning=response.reasoning)
 
 
 def _parse_tool_args(tool_call: dict) -> dict:
