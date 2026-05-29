@@ -1,18 +1,18 @@
 """Session context — bundles the 4 essential services the agent needs.
 
-Includes interactive provider setup fallback when no API key is found.
+Provider config comes from ~/.therain2020-agent/config.yaml.
+If not configured, prompts interactively and saves.
 """
 
 from __future__ import annotations
 
-import os
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .constants import MAX_STEPS, WORKSPACE_DIR
 from .memory import Memory
-from .provider import LLMProvider, detect_providers, route
+from .provider import LLMProvider, get_configured_provider
 from .safety import SafetyEngine
 from .tools import ToolRegistry, load_builtin_tools
 
@@ -37,11 +37,7 @@ def create_session(
     config: dict | None = None,
     interactive: bool = True,
 ) -> Session:
-    """Factory that auto-detects providers and builds a ready-to-use Session.
-
-    If no provider is found and interactive=True, prompts the user
-    to pick a provider and specify the API key env var to use.
-    """
+    """Build a Session from saved config. Falls back to interactive setup."""
     if config is None:
         try:
             from .config import load_config
@@ -49,30 +45,16 @@ def create_session(
         except Exception:
             config = {}
 
-    providers = detect_providers(config)
+    provider = get_configured_provider(config)
 
-    if not providers and interactive:
+    if provider is None and interactive:
         config = _interactive_setup(config)
-        providers = detect_providers(config)
+        provider = get_configured_provider(config)
 
-    if not providers:
+    if provider is None:
         raise RuntimeError(
-            "No LLM provider available. Run `therain2020 --setup` to configure, "
-            "or set an API key environment variable."
+            "No LLM provider configured. Run `therain2020 --setup`."
         )
-
-    provider = route(task, providers) if task else providers[0]
-
-    from .config import get_api_key  # noqa: E402 — lazy import for test isolation
-    prov_name = provider.name
-    prov_cfg = config.get("providers", {}).get(prov_name, {})
-    api_key = get_api_key(prov_name, config)
-    if api_key:
-        provider._api_key = api_key
-    if prov_cfg.get("base_url"):
-        provider._base_url = prov_cfg["base_url"]
-    if prov_cfg.get("model"):
-        provider.model = prov_cfg["model"]
 
     ws = workspace or WORKSPACE_DIR
     ws.mkdir(parents=True, exist_ok=True)
@@ -91,11 +73,11 @@ def create_session(
 
 
 def _interactive_setup(config: dict) -> dict:
-    """Prompt user to pick a provider and specify which env var holds the key."""
+    """Prompt user to pick provider + enter API key. Save to config."""
     from .config import PROVIDER_REGISTRY, save_config
 
     print()
-    print("  No API key found. Let's configure one.")
+    print("  No LLM provider configured. Let's set one up.")
     print()
 
     for i, (key, label, _, model, _, _) in enumerate(PROVIDER_REGISTRY):
@@ -112,25 +94,32 @@ def _interactive_setup(config: dict) -> dict:
             pass
         print(f"  Enter 1-{len(PROVIDER_REGISTRY)}")
 
-    key, label, env_var, model, base_url, cost = PROVIDER_REGISTRY[idx]
-    default_env = env_var or f"{key.upper()}_API_KEY"
+    key, label, _, model, base_url, cost = PROVIDER_REGISTRY[idx]
+    prov = config.setdefault("providers", {}).setdefault(key, {})
 
     print()
     print(f"  Provider: {label}")
-    print(f"  Default env var name: {default_env}")
-    custom = input(f"  Env var name (Enter to use {default_env}): ").strip()
-    final_env = custom if custom else default_env
 
-    api_key = os.environ.get(final_env)
-    if api_key:
-        print(f"  Found {final_env} ({_mask(api_key)})")
-    else:
-        api_key = input("  API key (paste it now): ").strip()
-        if not api_key:
-            print("  Skipped. Try again with the --setup flag.")
-            return config
+    # API key
+    api_key = input("  API key: ").strip()
+    if not api_key:
+        print("  Skipped. Run `therain2020 --setup` to configure later.")
+        return config
+    prov["api_key"] = api_key
 
-    config.setdefault("providers", {}).setdefault(key, {})["api_key"] = api_key
+    # Model (optional override)
+    print(f"  Model [default: {model}]: ", end="")
+    m = input().strip()
+    if m:
+        prov["model"] = m
+
+    # Base URL (optional override)
+    if base_url:
+        print(f"  Endpoint [default: {base_url}]: ", end="")
+        b = input().strip()
+        if b:
+            prov["base_url"] = b
+
     config["provider"] = key
     save_config(config)
 
