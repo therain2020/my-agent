@@ -22,7 +22,7 @@ def setup(port: int = 9222) -> str:
     if not bh_cmd:
         return _fail(
             "browser-harness not installed. "
-            "Install: pip install browser-harness"
+            "Fix: shell__run('pip install browser-harness') then retry"
         )
 
     # 2. Find Chrome

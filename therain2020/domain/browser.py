@@ -32,8 +32,9 @@ def _cdp(method, **params):
 def _check_daemon():
     if not ipc.ping(_DAEMON, timeout=0.5):
         raise RuntimeError(
-            "browser-harness daemon not running. "
-            "Start it with: browser-harness <<'PY'\nprint(page_info())\nPY"
+            "browser daemon not running. "
+            "Fix: browser-setup__setup() auto-connects Chrome. "
+            "Or: shell__run('browser-harness <<PY\\nprint(page_info())\\nPY')"
         )
 
 

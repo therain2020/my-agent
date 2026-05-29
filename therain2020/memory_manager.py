@@ -86,6 +86,17 @@ class MemoryManager:
         entry += "\n"
         self._upsert_memory("learnings.md", "Learnings", entry, prepend=False)
 
+    def record_fix(self, problem: str, solution: str):
+        """Record a fix recipe — loaded next session for instant self-healing."""
+        self.ensure()
+        ts = time.strftime("%Y-%m-%d %H:%M")
+        entry = (
+            f"## {ts}\n"
+            f"**Problem**: {problem}\n"
+            f"**Fix**: {solution}\n\n"
+        )
+        self._upsert_memory("fixes.md", "Fix Recipes", entry, prepend=False)
+
     # —— internal ——
 
     def _upsert_memory(self, filename: str, title: str, content: str,
