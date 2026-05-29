@@ -1067,12 +1067,11 @@ export async function getQueuedCommandAttachments(
         type: 'queued_command' as const,
         prompt,
         source_uuid: _.uuid,
-        imagePasteIds: getImagePasteIds(_.pastedContents),
         commandMode: _.mode,
         origin: _.origin,
         isMeta: _.isMeta,
       }
-    ,
+    }),
   )
 }
 
@@ -1091,7 +1090,7 @@ export function getAgentPendingMessageAttachments(
     prompt: msg,
     origin: { kind: 'coordinator' as const },
     isMeta: true,
-  )
+  }))
 }
 
 async function buildImageContentBlocks(
